@@ -1,0 +1,16 @@
+{
+  "name": "cdpkit",
+  "version": "0.0.1",
+  "description": "CDP automation core for agentic control of Chrome, Slack, and Notion.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "chrome-remote-interface": "^0.34.0"
+  }
+}
