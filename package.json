@@ -4,7 +4,8 @@
   "description": "CDP automation core for agentic control of Chrome, Slack, and Notion.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "probe": "node bin/probe.js"
   },
   "keywords": [],
   "author": "",

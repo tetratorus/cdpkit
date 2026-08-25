@@ -1,5 +1,6 @@
 const { spawn, execFile } = require("child_process");
 const transport = require("./transport");
+const state = require("./state");
 const { apps } = require("./apps");
 
 function sleep(ms) {
@@ -61,6 +62,9 @@ function launchApp(app, port) {
 
 async function attach({ host = "127.0.0.1", port, target } = {}) {
   const { client, target: chosen } = await transport.connect({ host, port, target });
+  if (chosen) {
+    state.setLastWorking(host, port, { targetId: chosen.id });
+  }
   return { client, target: chosen, host, port, ownsProcess: false };
 }
 
@@ -72,6 +76,9 @@ async function start(appName, { host = "127.0.0.1", port, kill = false, target }
   const alreadyCdp = await reachable(host, targetPort);
   if (alreadyCdp && !kill) {
     const { client, target: chosen } = await transport.connect({ host, port: targetPort, target });
+    if (chosen) {
+      state.setLastWorking(host, targetPort, { targetId: chosen.id });
+    }
     return { client, target: chosen, host, port: targetPort, ownsProcess: false, appName };
   }
 
@@ -86,7 +93,27 @@ async function start(appName, { host = "127.0.0.1", port, kill = false, target }
 
   await launchApp(app, targetPort);
   await waitForCdp(host, targetPort);
-  const { client, target: chosen } = await transport.connect({ host, port: targetPort, target });
+
+  async function restart() {
+    if (!state.canRestart(host, targetPort)) {
+      throw new Error(
+        `CDP on ${host}:${targetPort} is unreachable; restart throttled (last restart too recent)`
+      );
+    }
+    await killApp(app, true);
+    await sleep(1000);
+    await launchApp(app, targetPort);
+    await waitForCdp(host, targetPort);
+    state.setLastRestart(host, targetPort);
+  }
+
+  const { client, target: chosen } = await transport.connect({
+    host,
+    port: targetPort,
+    target,
+    restart,
+  });
+  state.setLastWorking(host, targetPort, { targetId: chosen.id });
   return { client, target: chosen, host, port: targetPort, ownsProcess: true, appName };
 }
 
