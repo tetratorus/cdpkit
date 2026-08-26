@@ -105,14 +105,41 @@ cdpkit is read-only by default. Never send, post, edit, or mutate state in any a
 
 #### Searching
 
-All Granola text searches must go through `search-process.js`. Do not call `granola.search` directly from the AI; it is a one-shot internal helper used only by the search worker.
+All Granola text searches must go through the `search-*.js` scripts. Do not call `granola.search` directly from the AI; it is a one-shot internal helper used only by `search-worker.js`.
 
-- `require('./search-process').startSearchProcess(keyword, { folder })` spawns a detached Node worker and returns `{ pid, filePath }`. The worker writes its current state to `filePath` after every 50-document batch.
-- To check the worker, call `require('./search-process').longPollFile(filePath, timeoutMs)` and keep calling it until the *specific* result you need is in `results` or `complete` is `true`. `longPollFile` returns whenever the worker has found any new match, finished, errored, or the timeout elapsed — so a non-empty `results` is not enough to stop. Inspect the titles/IDs in `results`; if the right document is not there yet, call `longPollFile` again.
-- When the desired result is in `results`, or `complete` is `true`, call `require('./search-process').stopSearchProcess(pid)` to kill the worker.
-- The state file contains `status`, `keyword`, `total`, `searched`, `progressPercentage`, `results`, and `complete`.
+##### Happy-path workflow
 
-> **AI consumer rule:** `granola.search` is for the worker only. Always use `search-process` to search. Always use `longPollFile` to wait for results. Do not stop just because `results` is non-empty — keep calling `longPollFile` until the specific document you need appears or `complete` is `true`. Do not read the file on a fixed interval and do not call `granola.search` directly.
+Each step below is one tool call. Do not combine them into a single script.
+
+1. Start: `node search-start.js "Anurag"` prints `{ pid, filePath }`.
+2. Poll: `node search-poll.js <filePath>` blocks until the worker either finds a new match, finishes scanning, errors, or the 30s timeout elapses. It prints the current state.
+3. Inspect `results` from the poll output. `results` accumulates every match the worker has found so far, not only the latest batch. Check whether the *specific* meeting you need is in there.
+4. If the meeting is found, run `node search-stop.js <pid>` to kill the worker, then use `granola.getTranscript(client, id)` or `granola.getNote(client, id)`.
+5. If the meeting is not found and `complete` is `false`, go back to step 2 with another `node search-poll.js <filePath>` call.
+6. If the meeting is not found and `complete` is `true`, the worker has already finished. Run `node search-stop.js <pid>` and report that the meeting is not in Granola.
+
+##### Failure modes (what can go wrong and why)
+
+**1. Stopping at the first non-empty `results`**  
+`search-poll.js` returns as soon as the worker has found *any* new match, not necessarily the one you want. The first match might be a different meeting that happens to contain the keyword in a snippet. Because `results` accumulates matches from every batch, you must keep polling until the specific meeting (right title and/or ID) appears, or until `complete` is `true`.
+
+**2. Writing one long-blocking script instead of separate tool calls**  
+A script like `node -e "... while(true) { await searchPoll(...) } ..."` defeats the design. It holds a single tool call open for a long time, the Devin `exec` timeout may kill it before `search-stop.js` runs, and the worker is left orphaned with no way to stop it. Each search step — `search-start.js`, `search-poll.js`, `search-stop.js` — must be its own tool call. The AI must look at the output of one tool call before issuing the next.
+
+**3. Forgetting to run `search-stop.js`**  
+The worker is a detached background process. If you do not run `search-stop.js <pid>` when you are done, it will keep scanning until the cache is exhausted, and it may hold the CDP session open. Even when `complete` is `true` the process is still alive until `search-stop.js` is called. Always run `search-stop.js` after the last poll.
+
+**4. Using a tool timeout that is shorter than the poll timeout**  
+`search-poll.js` defaults to 30s. If the `exec` timeout is shorter (for example, the 10s default), the tool call is killed before `search-poll.js` can return the state, so you never see the result and cannot know whether the worker found anything. Use an `exec` timeout of at least 45s for a `search-poll.js` call. If the worker finds a result earlier, it returns immediately.
+
+**5. Calling `granola.search` directly**  
+`granola.search` is one-shot and returns a `resume` token. It is not meant to be called by the AI. It is used internally by `search-worker.js` to advance the background scan. Always use `search-start.js`, `search-poll.js`, and `search-stop.js`.
+
+**6. Misinterpreting `complete: true`**  
+`complete: true` means the worker has scanned all document IDs. If your target is not in `results` at that point, it is genuinely not in the cache. Do not keep starting new searches; you have the final answer.
+
+**7. Starting multiple searches without stopping previous workers**  
+Each `search-start.js` creates a new worker with a new `pid` and `filePath`. If you start a new search before stopping the old one, you will have multiple workers attached to Granola and possibly competing for the cache. Stop the previous worker before starting another.
 
 - `granola.checkCacheFreshness(client, { folder })` compares the cache's `updated_at` for each folder against the server's `get-document-list` response and returns `{ fresh, lists }`. Call this before `search` if you want to verify the cache is up to date.
 - `granola.getNote(client, documentId)` fetches metadata for one note.
