@@ -25,6 +25,9 @@ db.exec(`
   );
 `);
 
+db.exec("PRAGMA journal_mode = WAL;");
+db.exec("PRAGMA busy_timeout = 5000;");
+
 function upsertDocuments(docs, folder) {
   const stmt = db.prepare(`
     INSERT INTO documents
@@ -68,6 +71,19 @@ function getLastSyncedAt() {
   const stmt = db.prepare("SELECT value FROM sync_meta WHERE key = ?");
   const row = stmt.get("last_sync");
   return row ? row.value : 0;
+}
+
+function setFolderSyncAt(folderId, updatedAt) {
+  const stmt = db.prepare(
+    "INSERT INTO sync_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  );
+  stmt.run(`folder_updated_at:${folderId}`, updatedAt);
+}
+
+function getFolderSyncAt(folderId) {
+  const stmt = db.prepare("SELECT value FROM sync_meta WHERE key = ?");
+  const row = stmt.get(`folder_updated_at:${folderId}`);
+  return row ? row.value : null;
 }
 
 function buildSearchSql(terms, folder) {
@@ -133,6 +149,8 @@ module.exports = {
   upsertDocuments,
   setLastSyncedAt,
   getLastSyncedAt,
+  setFolderSyncAt,
+  getFolderSyncAt,
   searchDocuments,
   countDocuments,
   getDocument,

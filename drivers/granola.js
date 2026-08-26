@@ -101,7 +101,7 @@ async function getDocumentListIds(client, { folder, maxDocs = null } = {}) {
       }
       const total = ids.length;
       if (maxDocs !== null && maxDocs !== undefined) ids = ids.slice(0, maxDocs);
-      return { workspaceId, ids, documentLists, folders, total };
+      return { workspaceId, ids, documentLists, folders, folderMeta: meta, total };
     })()`,
     { returnByValue: true, awaitPromise: true }
   );
@@ -192,11 +192,14 @@ async function fetchDocumentListSummaries(client, listId, workspaceId) {
 }
 
 async function syncDocuments(client) {
-  const { workspaceId, documentLists, folders } = await getDocumentListIds(client, { maxDocs: null });
+  console.log("reading Granola cache...");
+  const { workspaceId, documentLists, folders, folderMeta } = await getDocumentListIds(client, { maxDocs: null });
+  console.log(`cache read: ${folders.length} folders`);
   const now = Date.now();
   const lastSync = db.getLastSyncedAt();
   let fetched = 0;
   let unchanged = 0;
+  let skippedFolders = 0;
   if (!lastSync) {
     // Initial/catch-up sync: the DB is empty or a previous initial sync was interrupted.
     // Use the cache's document IDs directly; skip the per-folder list-summary calls.
@@ -210,10 +213,27 @@ async function syncDocuments(client) {
         fetched += docs.length;
         if (fetched % 500 === 0) console.log(`synced ${fetched} documents...`);
       }
+      const m = folderMeta[folderId];
+      if (m) db.setFolderSyncAt(folderId, m.updated_at);
     }
   } else {
-    // Incremental sync: use get-document-list to find changed/removed documents.
+    // Incremental sync: skip folders whose metadata updated_at has not changed.
     for (const folderId of Object.keys(documentLists)) {
+      const m = folderMeta[folderId];
+      const serverUpdatedAt = m ? m.updated_at : null;
+      const localUpdatedAt = db.getFolderSyncAt(folderId);
+      if (serverUpdatedAt && localUpdatedAt && serverUpdatedAt === localUpdatedAt) {
+        unchanged += documentLists[folderId].length;
+        skippedFolders++;
+        continue;
+      }
+      if (serverUpdatedAt && localUpdatedAt === null) {
+        // First incremental sync after initial sync: set the baseline and skip.
+        db.setFolderSyncAt(folderId, serverUpdatedAt);
+        unchanged += documentLists[folderId].length;
+        skippedFolders++;
+        continue;
+      }
       const summaries = await fetchDocumentListSummaries(client, folderId, workspaceId);
       const currentIds = new Set(summaries.map((s) => s.id));
       const localIds = db.getDocumentIdsForFolder(folderId);
@@ -236,11 +256,12 @@ async function syncDocuments(client) {
         fetched += docs.length;
         if (fetched % 500 === 0) console.log(`synced ${fetched} documents...`);
       }
+      if (m) db.setFolderSyncAt(folderId, m.updated_at);
     }
   }
   db.setLastSyncedAt(now);
-  console.log(`sync complete: ${fetched} fetched, ${unchanged} unchanged`);
-  return { fetched, unchanged, folders: folders.length, syncedAt: now };
+  console.log(`sync complete: ${fetched} fetched, ${unchanged} unchanged, ${skippedFolders} folders skipped`);
+  return { fetched, unchanged, skippedFolders, folders: folders.length, syncedAt: now };
 }
 
 async function searchLocal(client, query, { folder, limit = 100 } = {}) {
