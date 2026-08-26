@@ -1,12 +1,10 @@
 const session = require("../session");
 const primitives = require("../primitives");
-const fs = require("fs").promises;
-const path = require("path");
-const crypto = require("crypto");
+const db = require("../db");
 
 const BATCH_SIZE = 50; // API rejects >50 document_ids with a 400
 const RATE_LIMIT_INTERVAL = 500;
-const SEARCH_STATE_DIR = path.resolve(__dirname, "..", ".search-state");
+const SYNC_STALE_MS = 10 * 60 * 1000; // resync local DB if older than 10 minutes
 
 let lastCall = 0;
 let queue = Promise.resolve();
@@ -77,10 +75,12 @@ async function getDocumentListIds(client, { folder, maxDocs = null } = {}) {
       const workspaceId = Object.values(meta)[0]?.workspace_id || '';
       const folders = Object.entries(meta).map(([id, m]) => ({ id, title: m.title }));
       let ids = [];
+      let documentLists = {};
       if (${JSON.stringify(folder || null)}) {
         const q = ${JSON.stringify((folder || "").toLowerCase())};
         const fid = Object.keys(meta).find(k => k === ${JSON.stringify(folder || "")} || (meta[k].title || '').toLowerCase() === q) || ${JSON.stringify(folder || "")};
         ids = lists[fid] || [];
+        documentLists = { [fid]: ids };
       } else {
         const seen = new Set();
         const listsArr = Object.values(lists);
@@ -97,10 +97,11 @@ async function getDocumentListIds(client, { folder, maxDocs = null } = {}) {
           if (!found) break;
           idx++;
         }
+        documentLists = lists;
       }
       const total = ids.length;
       if (maxDocs !== null && maxDocs !== undefined) ids = ids.slice(0, maxDocs);
-      return { workspaceId, ids, folders, total, listsMeta: meta };
+      return { workspaceId, ids, documentLists, folders, total };
     })()`,
     { returnByValue: true, awaitPromise: true }
   );
@@ -174,118 +175,73 @@ async function getContext(client) {
   };
 }
 
-function personName(p) {
-  return p?.name || p?.details?.person?.name?.fullName || p?.details?.person?.name?.givenName || "";
+async function fetchDocumentListSummaries(client, listId, workspaceId) {
+  const summaries = [];
+  let offset = 0;
+  while (true) {
+    const data = await apiCall(client, "get-document-list", { list_id: listId, limit: 1000, offset }, { workspaceId });
+    const docs = data.documents || [];
+    if (!docs.length) break;
+    for (const d of docs) {
+      summaries.push({ id: d.id, updated_at: d.updated_at });
+    }
+    if (docs.length < 1000) break;
+    offset += 1000;
+  }
+  return summaries;
 }
 
-function haystackFor(doc) {
-  const parts = [];
-  if (doc.title) parts.push(doc.title);
-  if (doc.notes_plain) parts.push(doc.notes_plain);
-  if (doc.notes_markdown) parts.push(doc.notes_markdown);
-  if (doc.overview) parts.push(doc.overview);
-  if (doc.summary) parts.push(doc.summary);
-  if (doc.google_calendar_event?.summary) parts.push(doc.google_calendar_event.summary);
-  if (doc.people?.creator) {
-    parts.push(personName(doc.people.creator));
-    if (doc.people.creator.email) parts.push(doc.people.creator.email);
-  }
-  if (Array.isArray(doc.people?.attendees)) {
-    for (const p of doc.people.attendees) {
-      parts.push(personName(p));
-      if (p.email) parts.push(p.email);
+async function syncDocuments(client) {
+  const { workspaceId, documentLists, folders } = await getDocumentListIds(client, { maxDocs: null });
+  const now = Date.now();
+  let fetched = 0;
+  let unchanged = 0;
+  for (const folderId of Object.keys(documentLists)) {
+    const summaries = await fetchDocumentListSummaries(client, folderId, workspaceId);
+    const currentIds = new Set(summaries.map((s) => s.id));
+    const localIds = db.getDocumentIdsForFolder(folderId);
+    for (const id of localIds) {
+      if (!currentIds.has(id)) db.deleteDocument(id);
+    }
+    const toFetch = [];
+    for (const s of summaries) {
+      const existing = db.getDocument(s.id);
+      if (!existing || existing.updated_at !== s.updated_at) {
+        toFetch.push(s.id);
+      } else {
+        unchanged++;
+      }
+    }
+    for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+      const batch = toFetch.slice(i, i + BATCH_SIZE);
+      const docs = await getDocumentsBatch(client, batch, workspaceId);
+      db.upsertDocuments(docs, folderId);
+      fetched += docs.length;
     }
   }
-  return parts.join("\n").toLowerCase();
+  db.setLastSyncedAt(now);
+  return { fetched, unchanged, folders: folders.length, syncedAt: now };
 }
 
-async function checkCacheFreshness(client, { folder } = {}) {
-  const { workspaceId, listsMeta } = await getDocumentListIds(client, { folder });
-  const lists = [];
-  let fresh = true;
-  for (const [listId, m] of Object.entries(listsMeta)) {
-    try {
-      const server = await apiCall(client, "get-document-list", { list_id: listId }, { workspaceId });
-      const cacheUpdatedAt = m.updated_at;
-      const serverUpdatedAt = server.updated_at;
-      const listFresh = cacheUpdatedAt === serverUpdatedAt;
-      if (!listFresh) fresh = false;
-      lists.push({ listId, title: server.title || m.title || "", cacheUpdatedAt, serverUpdatedAt, fresh: listFresh });
-    } catch (err) {
-      fresh = false;
-      lists.push({ listId, title: m.title || "", error: err.message });
-    }
+async function searchLocal(client, query, { folder, limit = 100 } = {}) {
+  const lastSync = db.getLastSyncedAt();
+  const now = Date.now();
+  if (!lastSync || now - lastSync > SYNC_STALE_MS) {
+    await syncDocuments(client);
   }
-  return { fresh, lists };
-}
-
-function statePath(token) {
-  return path.join(SEARCH_STATE_DIR, `${token}.json`);
-}
-
-async function loadSearchState(token) {
-  const data = await fs.readFile(statePath(token), "utf8");
-  return JSON.parse(data);
-}
-
-async function saveSearchState(token, state) {
-  await fs.mkdir(SEARCH_STATE_DIR, { recursive: true });
-  await fs.writeFile(statePath(token), JSON.stringify(state), "utf8");
-}
-
-async function deleteSearchState(token) {
-  try {
-    await fs.unlink(statePath(token));
-  } catch (err) {
-    if (err.code !== "ENOENT") throw err;
-  }
-}
-
-async function search(client, query, { folder, resume } = {}) {
-  let state;
-  if (resume) {
-    state = await loadSearchState(resume);
-  } else {
-    if (!query) throw new Error("query is required");
-    const { workspaceId, ids, total } = await getDocumentListIds(client, { folder });
-    state = { query, folder, workspaceId, ids, total, offset: 0 };
-  }
-  const terms = state.query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) {
-    if (resume) await deleteSearchState(resume);
-    return { results: [], total: state.total, searched: 0, progressPercentage: 0, resume: null };
-  }
-  const { workspaceId, ids, total, offset } = state;
-  if (offset >= ids.length) {
-    if (resume) await deleteSearchState(resume);
-    return { results: [], total, searched: total, progressPercentage: 100, resume: null };
-  }
-  const batch = ids.slice(offset, offset + BATCH_SIZE);
-  const newOffset = offset + batch.length;
-  const docs = await getDocumentsBatch(client, batch, workspaceId);
-  const results = [];
-  for (const doc of docs) {
-    const haystack = haystackFor(doc);
-    if (!terms.every((t) => haystack.includes(t))) continue;
-    const snippet = (doc.notes_plain || doc.notes_markdown || doc.title || "").slice(0, 200);
-    results.push({
-      id: doc.id,
-      title: doc.title || "",
-      createdAt: doc.created_at,
-      url: `app://ui/#/meeting/${doc.id}`,
-      snippet,
-    });
-  }
-  const searched = newOffset;
-  const progressPercentage = total ? Math.round((searched / total) * 10000) / 100 : 0;
-  const nextResume = newOffset < total ? (resume || crypto.randomBytes(5).toString("hex")) : null;
-  if (nextResume) {
-    state.offset = newOffset;
-    await saveSearchState(nextResume, state);
-  } else if (resume) {
-    await deleteSearchState(resume);
-  }
-  return { results, total, searched, progressPercentage, resume: nextResume };
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return { results: [], total: 0, syncedAt: db.getLastSyncedAt() };
+  const rows = db.searchDocuments(terms, { folder, limit });
+  const total = db.countDocuments(terms, { folder });
+  const results = rows.map((r) => ({
+    id: r.id,
+    title: r.title || "",
+    createdAt: r.created_at,
+    url: `app://ui/#/meeting/${r.id}`,
+    snippet: (r.notes_plain || r.title || "").slice(0, 200),
+    folder: r.folder,
+  }));
+  return { results, total, syncedAt: db.getLastSyncedAt(), folder };
 }
 
 async function getNote(client, documentId) {
@@ -337,8 +293,8 @@ module.exports = {
   getText,
   getSelectedText,
   getContext,
-  search,
-  checkCacheFreshness,
+  syncDocuments,
+  searchLocal,
   getNote,
   getRecentCalls,
   getTranscript,

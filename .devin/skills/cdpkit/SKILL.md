@@ -43,29 +43,31 @@ node -e "console.log(Object.keys(require('./drivers/granola')))"
 
 ## Granola search
 
-All Granola text searches must go through `search-process.js`. Do not call `granola.search` directly from the AI.
+Granola uses a local SQLite cache (`granola-documents.db`) that mirrors document metadata. Searches run against this local DB; transcripts are fetched separately only when needed.
 
-```js
-const sp = require("./search-process");
-const { pid, filePath } = sp.startSearchProcess("keyword", { folder });
-let status;
-while (true) {
-  status = await sp.longPollFile(filePath, 30000); // blocks until any result, completion, error, or timeout
-  // inspect status.results for the specific document you need
-  if (status.results.some(r => r.title.includes("right call")) || status.complete) break;
-}
-await sp.stopSearchProcess(pid);
+```bash
+# Search the local DB (auto-syncs if the cache is older than 10 minutes)
+node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({kill:false});const r=await g.searchLocal(s.client,'Yan Shubhra');console.log(JSON.stringify(r,null,2));await g.stop(s);})();"
+
+# Fetch the transcript for a specific document id
+node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({kill:false});const t=await g.getTranscript(s.client,'MEETING-ID');console.log(JSON.stringify(t,null,2));await g.stop(s);})();"
 ```
 
-- `startSearchProcess(keyword, { folder })` spawns a detached worker and returns `{ pid, filePath }`.
-- `longPollFile(filePath, timeoutMs)` only returns when the worker has found any new match, finished, errored, or the timeout elapsed. **Do not stop at the first non-empty `results` — inspect the titles/IDs and keep calling `longPollFile` until the specific result you need appears or `complete` is `true`.
-- `stopSearchProcess(pid)` kills the worker.
+- `granola.syncDocuments(client)` fetches all document IDs, expands them in 50-document batches, and upserts metadata/titles/notes into the local SQLite DB.
+- `granola.searchLocal(client, query, { folder, limit })` syncs automatically if needed, then searches the local DB and returns `{ results, total, syncedAt, folder }`.
+- `granola.getTranscript(client, id)` returns `{ meetingId, transcript, segments }`.
+
+## Terminology
+
+- **Document ID** — a UUID. The cache stores these plus metadata.
+- **Document / meeting** — the object returned by `get-documents-batch`: `id`, `title`, `created_at`, `notes_plain`, `notes_markdown`, `people`, `overview`, etc. Not the transcript.
+- **Transcript** — the spoken text from `get-document-transcript`, fetched separately with `granola.getTranscript`.
 
 ## Where to learn the API
 
 - Implementation: `drivers/<app>.js` (slack.js, notion.js, chrome.js, granola.js)
 - Lifecycle: `session.js` and `apps.js`
-- Granola search worker: `search-process.js`, `search-worker.js`
+- Granola local DB: `db.js`, `drivers/granola.js`
 - Low-level primitives: `primitives.js`, `transport.js`
 - Overview: `README.md`
 
@@ -74,4 +76,5 @@ await sp.stopSearchProcess(pid);
 - Read-only by default. `apiCall` rejects writes unless `{ allowWrite: true }` is passed.
 - Do not post, send, edit, or mutate state in any app unless explicitly asked.
 - Do not capture Chrome screenshots. They are sensitive and can trigger guardrails. Read the page with `getText`/`getTitle`/`getContext()` instead. Only capture a screenshot if the user explicitly asks for a visual artifact, and then use the underlying CDP primitives directly, not the chrome driver.
-- For Granola, always use `search-process` and `longPollFile`; never loop `granola.search` directly.
+- For Granola, always use `granola.searchLocal`. It syncs automatically. Do not call `granola.search` directly.
+- If you need a transcript, first find the document with `searchLocal`, then call `granola.getTranscript` with that `id`.

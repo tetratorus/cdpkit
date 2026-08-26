@@ -1,2 +1,5 @@
 node_modules/
-.DS_Store
+granola-documents.db
+.search-state/
+*.log
+*-transcript.txt
