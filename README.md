@@ -11,14 +11,14 @@ const slack = require("./drivers/slack");
 ## Agent workflow
 
 1. Start or attach to the app: `slack.start()` / `notion.start()` / `chrome.start()`.
-2. Get context: `driver.getContext(client)` returns a screenshot and the current state.
-3. Inspect the screenshot to identify the active channel, page, or selection.
+2. Get context: `driver.getContext(client)` returns the current state. For Slack and Notion it also includes a screenshot; for Chrome it returns title, URL, and visible text only.
+3. Inspect the returned state to identify the active channel, page, or selection.
 4. Fetch data with read methods like `getMessages`, `searchMessages`, `getText`, `search`.
 5. Stop the session: `driver.stop(s)`.
 
 ## Drivers
 
-- `drivers/chrome.js` — browser navigation, screenshots, runtime evaluation
+- `drivers/chrome.js` — browser navigation and runtime evaluation (screenshots are not exposed)
 - `drivers/slack.js` — in-app Slack API calls, messages, search, context
 - `drivers/notion.js` — in-app Notion API calls, page open, text extract, search, context
 
@@ -34,6 +34,10 @@ const slack = require("./drivers/slack");
 - Slack tokens are fetched fresh for every call via `window.desktopDelegate.getTokenForCurrentTeam()`.
 - Slack and Notion API calls run inside the app renderer with the app's cookies and build metadata.
 - `apiCall` methods allow only read-only endpoints unless `{ allowWrite: true }` is passed explicitly.
+
+### IMPORTANT: keep API calls inside the app's context
+
+Where feasible, trigger `fetch`/`XMLHttpRequest` from within the app renderer rather than exfiltrating tokens or cookies out to an external Node `fetch`. This is more secure (secrets stay in the app's process) and more reliable (the app supplies the correct headers, build metadata, and platform identifiers).
 
 ## Agent guide to cdpkit
 
@@ -91,4 +95,26 @@ cdpkit is read-only by default. Never send, post, edit, or mutate state in any a
 ### Chrome
 
 - Use `Page.navigate` for navigation **only when the user explicitly asks you to load a different page**.
-- **When the user asks you to look at or see what they are currently seeing, attach to the existing tab and capture the current state.** Use `Runtime.evaluate` to inspect the page and `Page.captureScreenshot` for visual artifacts; do not reload or re-navigate.
+- **When the user asks you to look at or see what they are currently seeing, attach to the existing tab and read the current state with `chrome.getContext()`**. `getContext()` returns the title, URL, and visible text. Do not capture Chrome screenshots; they are sensitive and can trigger guardrails. Only do so if the user explicitly asks for a visual artifact, and then use the underlying CDP primitives directly, not the chrome driver. Do not reload or re-navigate.
+
+### Granola
+
+- Start/attach with `granola.start({ port: 9231 })`.
+- `granola.getContext(client)` returns `{ currentPage, screenshot, selectedText }`.
+
+#### Searching
+
+All Granola text searches must go through `search-process.js`. Do not call `granola.search` directly from the AI; it is a one-shot internal helper used only by the search worker.
+
+- `require('./search-process').startSearchProcess(keyword, { folder })` spawns a detached Node worker and returns `{ pid, filePath }`. The worker writes its current state to `filePath` after every 50-document batch.
+- To check the worker, call `require('./search-process').longPollFile(filePath, timeoutMs)` and keep calling it until it returns a result or `complete: true`. `longPollFile` only returns when the worker has found a match, finished, errored, or the timeout elapsed. This avoids wasting tool calls on empty polls.
+- When the desired result is in `results`, or `complete` is `true`, call `require('./search-process').stopSearchProcess(pid)` to kill the worker.
+- The state file contains `status`, `keyword`, `total`, `searched`, `progressPercentage`, `results`, and `complete`.
+
+> **AI consumer rule:** `granola.search` is for the worker only. Always use `search-process` to search. Always use `longPollFile` to wait for results. Do not read the file on a fixed interval and do not call `granola.search` directly.
+
+- `granola.checkCacheFreshness(client, { folder })` compares the cache's `updated_at` for each folder against the server's `get-document-list` response and returns `{ fresh, lists }`. Call this before `search` if you want to verify the cache is up to date.
+- `granola.getNote(client, documentId)` fetches metadata for one note.
+- `granola.getRecentCalls(client, { limit, folder })` returns the most recent calls by `created_at`.
+- `granola.getTranscript(client, meetingId)` returns `{ meetingId, transcript, segments }`.
+- All API calls run inside the Granola renderer so tokens and build headers stay in-app.
