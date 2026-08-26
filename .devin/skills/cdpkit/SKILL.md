@@ -48,12 +48,17 @@ All Granola text searches must go through `search-process.js`. Do not call `gran
 ```js
 const sp = require("./search-process");
 const { pid, filePath } = sp.startSearchProcess("keyword", { folder });
-const status = await sp.longPollFile(filePath, 30000); // blocks until result or timeout
+let status;
+while (true) {
+  status = await sp.longPollFile(filePath, 30000); // blocks until any result, completion, error, or timeout
+  // inspect status.results for the specific document you need
+  if (status.results.some(r => r.title.includes("right call")) || status.complete) break;
+}
 await sp.stopSearchProcess(pid);
 ```
 
 - `startSearchProcess(keyword, { folder })` spawns a detached worker and returns `{ pid, filePath }`.
-- `longPollFile(filePath, timeoutMs)` only returns when the worker has found a result, finished, errored, or the timeout elapsed. Keep calling it until you have what you need.
+- `longPollFile(filePath, timeoutMs)` only returns when the worker has found any new match, finished, errored, or the timeout elapsed. **Do not stop at the first non-empty `results` — inspect the titles/IDs and keep calling `longPollFile` until the specific result you need appears or `complete` is `true`.
 - `stopSearchProcess(pid)` kills the worker.
 
 ## Where to learn the API

@@ -108,11 +108,11 @@ cdpkit is read-only by default. Never send, post, edit, or mutate state in any a
 All Granola text searches must go through `search-process.js`. Do not call `granola.search` directly from the AI; it is a one-shot internal helper used only by the search worker.
 
 - `require('./search-process').startSearchProcess(keyword, { folder })` spawns a detached Node worker and returns `{ pid, filePath }`. The worker writes its current state to `filePath` after every 50-document batch.
-- To check the worker, call `require('./search-process').longPollFile(filePath, timeoutMs)` and keep calling it until it returns a result or `complete: true`. `longPollFile` only returns when the worker has found a match, finished, errored, or the timeout elapsed. This avoids wasting tool calls on empty polls.
+- To check the worker, call `require('./search-process').longPollFile(filePath, timeoutMs)` and keep calling it until the *specific* result you need is in `results` or `complete` is `true`. `longPollFile` returns whenever the worker has found any new match, finished, errored, or the timeout elapsed — so a non-empty `results` is not enough to stop. Inspect the titles/IDs in `results`; if the right document is not there yet, call `longPollFile` again.
 - When the desired result is in `results`, or `complete` is `true`, call `require('./search-process').stopSearchProcess(pid)` to kill the worker.
 - The state file contains `status`, `keyword`, `total`, `searched`, `progressPercentage`, `results`, and `complete`.
 
-> **AI consumer rule:** `granola.search` is for the worker only. Always use `search-process` to search. Always use `longPollFile` to wait for results. Do not read the file on a fixed interval and do not call `granola.search` directly.
+> **AI consumer rule:** `granola.search` is for the worker only. Always use `search-process` to search. Always use `longPollFile` to wait for results. Do not stop just because `results` is non-empty — keep calling `longPollFile` until the specific document you need appears or `complete` is `true`. Do not read the file on a fixed interval and do not call `granola.search` directly.
 
 - `granola.checkCacheFreshness(client, { folder })` compares the cache's `updated_at` for each folder against the server's `get-document-list` response and returns `{ fresh, lists }`. Call this before `search` if you want to verify the cache is up to date.
 - `granola.getNote(client, documentId)` fetches metadata for one note.
