@@ -13,7 +13,7 @@ const slack = require("./drivers/slack");
 1. Start or attach to the app: `slack.start()` / `notion.start()` / `chrome.start()`.
 2. Get context: `driver.getContext(client)` returns the current state. For Slack and Notion it also includes a screenshot; for Chrome it returns title, URL, and visible text only.
 3. Inspect the returned state to identify the active channel, page, or selection.
-4. Fetch data with read methods like `getMessages`, `searchMessages`, `getText`, `search`.
+4. Fetch data with read methods like `getMessages`, `searchMessages`, `getText`, `search`, or (for Granola) `search-process`.
 5. Stop the session: `driver.stop(s)`.
 
 ## Drivers
@@ -42,7 +42,7 @@ Where feasible, trigger `fetch`/`XMLHttpRequest` from within the app renderer ra
 
 ## Agent guide to cdpkit
 
-You are an agent using cdpkit to operate Chrome, Slack, and Notion on a macOS desktop. Read this before using any driver.
+You are an agent using cdpkit to operate Chrome, Slack, Notion, and Granola on a macOS desktop. Read this before using any driver.
 
 ### Core principle
 
@@ -65,7 +65,7 @@ cdpkit is read-only by default. Never send, post, edit, or mutate state in any a
 
 ### Context capture
 
-- Call `slack.getContext()` or `notion.getContext()` to get a base64 PNG screenshot plus the current state.
+- Call `slack.getContext()`, `notion.getContext()`, or `granola.getContext()` to get the current state (Slack and Notion also include a screenshot).
 - Use `Page.getLayoutMetrics().cssLayoutViewport` and `cssContentSize` for screenshot clips so Retina displays capture correctly.
 - Combine the screenshot with read methods (`getMessages`, `searchMessages`, `getText`, `search`) to answer user questions.
 
