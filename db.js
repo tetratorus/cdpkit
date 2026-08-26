@@ -114,6 +114,11 @@ function getDocumentIdsForFolder(folder) {
   return stmt.all(folder).map((r) => r.id);
 }
 
+function getAllDocumentIds() {
+  const stmt = db.prepare("SELECT id FROM documents");
+  return new Set(stmt.all().map((r) => r.id));
+}
+
 function deleteDocument(id) {
   const stmt = db.prepare("DELETE FROM documents WHERE id = ?");
   stmt.run(id);
@@ -132,6 +137,7 @@ module.exports = {
   countDocuments,
   getDocument,
   getDocumentIdsForFolder,
+  getAllDocumentIds,
   deleteDocument,
   clearDocuments,
 };

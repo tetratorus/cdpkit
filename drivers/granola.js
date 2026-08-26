@@ -194,32 +194,52 @@ async function fetchDocumentListSummaries(client, listId, workspaceId) {
 async function syncDocuments(client) {
   const { workspaceId, documentLists, folders } = await getDocumentListIds(client, { maxDocs: null });
   const now = Date.now();
+  const lastSync = db.getLastSyncedAt();
   let fetched = 0;
   let unchanged = 0;
-  for (const folderId of Object.keys(documentLists)) {
-    const summaries = await fetchDocumentListSummaries(client, folderId, workspaceId);
-    const currentIds = new Set(summaries.map((s) => s.id));
-    const localIds = db.getDocumentIdsForFolder(folderId);
-    for (const id of localIds) {
-      if (!currentIds.has(id)) db.deleteDocument(id);
-    }
-    const toFetch = [];
-    for (const s of summaries) {
-      const existing = db.getDocument(s.id);
-      if (!existing || existing.updated_at !== s.updated_at) {
-        toFetch.push(s.id);
-      } else {
-        unchanged++;
+  if (!lastSync) {
+    // Initial/catch-up sync: the DB is empty or a previous initial sync was interrupted.
+    // Use the cache's document IDs directly; skip the per-folder list-summary calls.
+    const syncedIds = db.getAllDocumentIds();
+    for (const folderId of Object.keys(documentLists)) {
+      const missing = documentLists[folderId].filter((id) => !syncedIds.has(id));
+      for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+        const batch = missing.slice(i, i + BATCH_SIZE);
+        const docs = await getDocumentsBatch(client, batch, workspaceId);
+        db.upsertDocuments(docs, folderId);
+        fetched += docs.length;
+        if (fetched % 500 === 0) console.log(`synced ${fetched} documents...`);
       }
     }
-    for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
-      const batch = toFetch.slice(i, i + BATCH_SIZE);
-      const docs = await getDocumentsBatch(client, batch, workspaceId);
-      db.upsertDocuments(docs, folderId);
-      fetched += docs.length;
+  } else {
+    // Incremental sync: use get-document-list to find changed/removed documents.
+    for (const folderId of Object.keys(documentLists)) {
+      const summaries = await fetchDocumentListSummaries(client, folderId, workspaceId);
+      const currentIds = new Set(summaries.map((s) => s.id));
+      const localIds = db.getDocumentIdsForFolder(folderId);
+      for (const id of localIds) {
+        if (!currentIds.has(id)) db.deleteDocument(id);
+      }
+      const toFetch = [];
+      for (const s of summaries) {
+        const existing = db.getDocument(s.id);
+        if (!existing || existing.updated_at !== s.updated_at) {
+          toFetch.push(s.id);
+        } else {
+          unchanged++;
+        }
+      }
+      for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+        const batch = toFetch.slice(i, i + BATCH_SIZE);
+        const docs = await getDocumentsBatch(client, batch, workspaceId);
+        db.upsertDocuments(docs, folderId);
+        fetched += docs.length;
+        if (fetched % 500 === 0) console.log(`synced ${fetched} documents...`);
+      }
     }
   }
   db.setLastSyncedAt(now);
+  console.log(`sync complete: ${fetched} fetched, ${unchanged} unchanged`);
   return { fetched, unchanged, folders: folders.length, syncedAt: now };
 }
 
