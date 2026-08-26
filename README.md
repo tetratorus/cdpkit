@@ -21,6 +21,7 @@ const slack = require("./drivers/slack");
 - `drivers/chrome.js` — browser navigation and runtime evaluation (screenshots are not exposed)
 - `drivers/slack.js` — in-app Slack API calls, messages, search, context
 - `drivers/notion.js` — in-app Notion API calls, page open, text extract, search, context
+- `drivers/granola.js` — in-app Granola API calls, search, transcripts, context
 
 ## Core modules
 
