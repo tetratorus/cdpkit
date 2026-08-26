@@ -4,7 +4,7 @@ const db = require("../db");
 
 const BATCH_SIZE = 50; // API rejects >50 document_ids with a 400
 const RATE_LIMIT_INTERVAL = 500;
-const SYNC_STALE_MS = 10 * 60 * 1000; // resync local DB if older than 10 minutes
+const SYNC_STALE_MS = 60 * 60 * 1000; // resync local DB if older than 1 hour
 
 let lastCall = 0;
 let queue = Promise.resolve();
@@ -264,12 +264,16 @@ async function syncDocuments(client) {
   return { fetched, unchanged, skippedFolders, folders: folders.length, syncedAt: now };
 }
 
-async function searchLocal(client, query, { folder, limit = 100 } = {}) {
+async function ensureSynced(client) {
   const lastSync = db.getLastSyncedAt();
   const now = Date.now();
   if (!lastSync || now - lastSync > SYNC_STALE_MS) {
     await syncDocuments(client);
   }
+}
+
+async function searchLocal(client, query, { folder, limit = 100 } = {}) {
+  await ensureSynced(client);
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return { results: [], total: 0, syncedAt: db.getLastSyncedAt() };
   const rows = db.searchDocuments(terms, { folder, limit });
@@ -286,6 +290,7 @@ async function searchLocal(client, query, { folder, limit = 100 } = {}) {
 }
 
 async function getNote(client, documentId) {
+  await ensureSynced(client);
   const docs = await getDocumentsBatch(client, [documentId]);
   if (!docs.length) return null;
   const doc = docs[0];
@@ -302,6 +307,7 @@ async function getNote(client, documentId) {
 }
 
 async function getRecentCalls(client, { limit = 10, folder } = {}) {
+  await ensureSynced(client);
   const { workspaceId, ids } = await getDocumentListIds(client, { folder, maxDocs: limit * 2 });
   const docs = [];
   for (let i = 0; i < ids.length; i += BATCH_SIZE) {
@@ -318,6 +324,7 @@ async function getRecentCalls(client, { limit = 10, folder } = {}) {
 }
 
 async function getTranscript(client, meetingId) {
+  await ensureSynced(client);
   const segs = await getDocumentTranscript(client, meetingId);
   const text = segs.map((s) => s.text).join("\n");
   return {

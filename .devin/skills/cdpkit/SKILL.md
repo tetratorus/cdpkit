@@ -54,7 +54,8 @@ node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({
 ```
 
 - `granola.syncDocuments(client)` fetches all document IDs, expands them in 50-document batches, and upserts metadata/titles/notes into the local SQLite DB.
-- `granola.searchLocal(client, query, { folder, limit })` syncs automatically if needed, then searches the local DB and returns `{ results, total, syncedAt, folder }`.
+- `granola.searchLocal(client, query, { folder, limit })` syncs automatically if the cache is more than 1 hour old, then searches the local DB and returns `{ results, total, syncedAt, folder }`.
+- `granola.getNote`, `getRecentCalls`, and `getTranscript` also ensure the cache is synced before making their API calls.
 - `granola.getTranscript(client, id)` returns `{ meetingId, transcript, segments }`.
 
 ## Terminology

@@ -111,9 +111,9 @@ cdpkit is read-only by default. Never send, post, edit, or mutate state in any a
 
 #### Local document cache
 
-Granola searches run against a local SQLite cache (`granola-documents.db`) that cdpkit keeps in sync with the Granola renderer. `granola.searchLocal(client, query, { folder, limit })` automatically syncs the cache if it is more than 10 minutes old, then searches the local DB. If you need the transcript for a found document, call `granola.getTranscript(client, id)` separately.
+Granola searches run against a local SQLite cache (`granola-documents.db`) that cdpkit keeps in sync with the Granola renderer. `granola.searchLocal(client, query, { folder, limit })` automatically syncs the cache if it is more than 1 hour old, then searches the local DB. `granola.getNote`, `getRecentCalls`, and `getTranscript` also ensure the cache is synced before fetching from the API.
 
-- `granola.syncDocuments(client)` fetches the document list for each folder and compares `updated_at` timestamps against the local DB. It fetches full document objects only for new or changed documents (in 50-document batches), deletes IDs that are no longer in the cache, and updates `syncedAt`.
+- `granola.syncDocuments(client)` fetches the document list for each folder and compares `updated_at` timestamps against the local DB. It fetches full document objects only for new or changed documents (in 50-document batches), deletes IDs that are no longer in the cache, and updates `syncedAt`. You do not need to call it before `searchLocal`; use it only when the user explicitly asks to sync or when you need data newer than the last `syncedAt`.
 - `granola.searchLocal(client, "Yan Shubhra", { limit: 20 })` returns `{ results, total, syncedAt, folder }`. `results` contains `{ id, title, createdAt, url, snippet, folder }`.
 - `granola.getTranscript(client, id)` returns `{ meetingId, transcript, segments }`.
 
