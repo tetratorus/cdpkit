@@ -17,6 +17,7 @@ const READONLY_METHODS = new Set([
   "users.info",
   "users.list",
   "users.lookupByEmail",
+  "users.conversations",
   "teams.info",
   "team.info",
 ]);

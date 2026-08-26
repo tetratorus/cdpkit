@@ -1,7 +1,6 @@
 const session = require("../session");
 const transport = require("../transport");
 const primitives = require("../primitives");
-const observation = require("../observation");
 
 async function start({ port = 9229, kill = false, url } = {}) {
   const s = await session.start("chrome", { port, kill });
@@ -31,12 +30,17 @@ async function getText(client) {
   return primitives.getText(client);
 }
 
-async function screenshot(client, opts) {
-  return observation.captureScreenshot(client, opts);
-}
-
 async function run(client, expression) {
   return primitives.eval(client, expression);
+}
+
+async function getContext(client) {
+  const [title, url, text] = await Promise.all([
+    getTitle(client),
+    run(client, "location.href"),
+    getText(client),
+  ]);
+  return { app: "chrome", title, url, text };
 }
 
 module.exports = {
@@ -45,6 +49,6 @@ module.exports = {
   navigate,
   getTitle,
   getText,
-  screenshot,
   run,
+  getContext,
 };
