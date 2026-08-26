@@ -11,7 +11,7 @@ const slack = require("./drivers/slack");
 ## Agent workflow
 
 1. Start or attach to the app: `slack.start()` / `notion.start()` / `chrome.start()`.
-2. Get context: `driver.getContext(client)` returns the current state. Slack, Notion, and Granola also include a screenshot; Chrome returns title, URL, and visible text only.
+2. Get context: `driver.getContext(client)` returns the current state. Slack, Notion, and Granola also include a screenshot; Chrome returns title, URL, and visible text only because of screenshot safeguards.
 3. Inspect the returned state to identify the active channel, page, or selection.
 4. Fetch data with read methods like `getMessages`, `searchMessages`, `getText`, `search`, or (for Granola) `search-process`.
 5. Stop the session: `driver.stop(s)`.
