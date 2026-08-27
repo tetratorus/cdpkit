@@ -49,7 +49,7 @@ node -e "console.log(Object.keys(require('./drivers/granola')))"
 
 ## Shell launcher aliases
 
-cdpkit ships `scripts/aliases.sh`, a bash/zsh-compatible source file that defines launcher functions. Add it to your shell rc:
+cdpkit ships `scripts/aliases.sh`, a bash/zsh-compatible source file that defines launcher functions for the **user**. Add it to your shell rc:
 
 ```bash
 # ~/.bashrc or ~/.zshrc
@@ -63,6 +63,8 @@ Functions available:
 - `notionstart` — Notion with CDP on port 9230
 - `granolastart` — patched Granola with CDP on port 9231
 - `chromestop`, `slackstop`, `notionstop`, `granolastop` — only use these when you intentionally want to quit the app
+
+**Agents must not call these shell functions directly.** They are user-facing helpers. If an app is not already open with CDP reachable, ask the user to run the appropriate `*start` command, then use `driver.start({ kill: false })` to attach.
 
 `scripts/aliases.sh` resolves `CDPKIT_DIR` from its own location, so it works regardless of where the repo is cloned. The implementations call the cdpkit drivers directly (`granola.start({ launch: true })` for Granola).
 
