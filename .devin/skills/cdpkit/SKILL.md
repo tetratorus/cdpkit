@@ -32,7 +32,7 @@ const s = await driver.start({ kill: false });
 const ctx = await driver.getContext(s.client);
 console.log(JSON.stringify(ctx, null, 2));
 // ... use driver helpers ...
-await driver.stop(s);
+// Leave the app running unless you intentionally launched it and want to close it.
 ```
 
 To see what a driver exposes at runtime:
@@ -41,16 +41,22 @@ To see what a driver exposes at runtime:
 node -e "console.log(Object.keys(require('./drivers/granola')))"
 ```
 
+## Lifecycle
+
+- Use `driver.start({ kill: false })` to attach to an already-open app.
+- Do not call `driver.stop()` as a routine cleanup step. Only call `stop()` when you intentionally launched the app and want to quit it.
+- If the user's app was already open, leave it open.
+
 ## Granola search
 
 Granola uses a local SQLite cache (`granola-documents.db`) that mirrors document metadata. Searches run against this local DB; transcripts are fetched separately only when needed.
 
 ```bash
 # Search the local DB (auto-syncs if the cache is older than 10 minutes)
-node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({kill:false});const r=await g.searchLocal(s.client,'Yan Shubhra');console.log(JSON.stringify(r,null,2));await g.stop(s);})();"
+node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({kill:false});const r=await g.searchLocal(s.client,'Yan Shubhra');console.log(JSON.stringify(r,null,2));})();"
 
 # Fetch the transcript for a specific document id
-node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({kill:false});const t=await g.getTranscript(s.client,'MEETING-ID');console.log(JSON.stringify(t,null,2));await g.stop(s);})();"
+node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({kill:false});const t=await g.getTranscript(s.client,'MEETING-ID');console.log(JSON.stringify(t,null,2));})();"
 ```
 
 - `granola.syncDocuments(client)` fetches all document IDs, expands them in 50-document batches, and upserts metadata/titles/notes into the local SQLite DB.
@@ -79,3 +85,4 @@ node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({
 - Do not capture Chrome screenshots. They are sensitive and can trigger guardrails. Read the page with `getText`/`getTitle`/`getContext()` instead. Only capture a screenshot if the user explicitly asks for a visual artifact, and then use the underlying CDP primitives directly, not the chrome driver.
 - For Granola, always use `granola.searchLocal`. It syncs automatically. Do not call `granola.search` directly.
 - If you need a transcript, first find the document with `searchLocal`, then call `granola.getTranscript` with that `id`.
+- Do not stop or kill an app that the user already had open. Only call `driver.stop()` when you intentionally launched the app and want to close it.
