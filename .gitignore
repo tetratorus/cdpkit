@@ -3,3 +3,4 @@ granola-documents.db
 .search-state/
 *.log
 *-transcript.txt
+granola-documents.db-*
