@@ -79,8 +79,8 @@ async function ensureApiMeta(client) {
   return meta;
 }
 
-async function start({ port = 9228, kill = false } = {}) {
-  const s = await session.start("slack", { port, kill });
+async function start({ port = 9228, forceRelaunch = false } = {}) {
+  const s = await session.start("slack", { port, forceRelaunch });
   await ensureApiMeta(s.client);
   return s;
 }

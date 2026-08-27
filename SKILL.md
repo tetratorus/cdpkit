@@ -26,7 +26,7 @@ npm install
 const app = "slack"; // or "notion", "chrome"
 const driver = require(`./drivers/${app}`);
 
-const s = await driver.start({ kill: false });
+const s = await driver.start();
 const ctx = await driver.getContext(s.client);
 console.log(JSON.stringify(ctx, null, 2));
 // ... use driver helpers, e.g. driver.searchMessages, driver.search, driver.getText ...

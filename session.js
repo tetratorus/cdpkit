@@ -68,13 +68,13 @@ async function attach({ host = "127.0.0.1", port, target } = {}) {
   return { client, target: chosen, host, port, ownsProcess: false };
 }
 
-async function start(appName, { host = "127.0.0.1", port, kill = false, target } = {}) {
+async function start(appName, { host = "127.0.0.1", port, forceRelaunch = false, target } = {}) {
   if (!apps[appName]) throw new Error(`Unknown app: ${appName}`);
   const app = apps[appName];
   const targetPort = port || app.defaultPort;
 
   const alreadyCdp = await reachable(host, targetPort);
-  if (alreadyCdp && !kill) {
+  if (alreadyCdp && !forceRelaunch) {
     const { client, target: chosen } = await transport.connect({ host, port: targetPort, target });
     if (chosen) {
       state.setLastWorking(host, targetPort, { targetId: chosen.id });
@@ -86,7 +86,7 @@ async function start(appName, { host = "127.0.0.1", port, kill = false, target }
     throw new Error(`Launching ${app.name} is only supported on macOS`);
   }
 
-  if (alreadyCdp || (await isAppRunning(app)) || kill) {
+  if (alreadyCdp || (await isAppRunning(app)) || forceRelaunch) {
     await killApp(app, true);
     await sleep(1000);
   }

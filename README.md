@@ -51,7 +51,7 @@ cdpkit is read-only by default. Never send, post, edit, or mutate state in any a
 ### How to use cdpkit
 
 1. Require the driver for the app the user is asking about.
-2. Start or attach with `start({ port, kill })`.
+2. Start or attach with `start({ port })`.
 3. Get context with `getContext()` to receive a screenshot and the current state. Do not navigate away from what the user is already viewing unless they explicitly ask you to load a different page.
 4. Inspect the screenshot to identify the active channel, page, or selection.
 5. Fetch earlier or related data with read methods.
@@ -122,12 +122,12 @@ Granola searches run against a local SQLite cache (`granola-documents.db`) that 
 
 1. Search the local DB in one tool call:
    ```bash
-   node -e "const g = require('./drivers/granola'); (async () => { const s = await g.start({ kill: false }); const r = await g.searchLocal(s.client, 'Yan Shubhra'); console.log(JSON.stringify(r, null, 2)); })();"
+   node -e "const g = require('./drivers/granola'); (async () => { const s = await g.start(); const r = await g.searchLocal(s.client, 'Yan Shubhra'); console.log(JSON.stringify(r, null, 2)); })();"
    ```
 2. Inspect `results` for the right meeting. `total` is the number of local matches.
 3. When you have the right `id`, fetch the transcript in a separate tool call:
    ```bash
-   node -e "const g = require('./drivers/granola'); (async () => { const s = await g.start({ kill: false }); const t = await g.getTranscript(s.client, 'MEETING-ID'); console.log(JSON.stringify(t, null, 2)); })();"
+   node -e "const g = require('./drivers/granola'); (async () => { const s = await g.start(); const t = await g.getTranscript(s.client, 'MEETING-ID'); console.log(JSON.stringify(t, null, 2)); })();"
    ```
 
 - Use `granola.searchLocal` for all text searches. It syncs automatically. If you need a transcript, first find the document with `searchLocal`, then call `granola.getTranscript` with that `id`.

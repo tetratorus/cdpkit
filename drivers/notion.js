@@ -109,10 +109,10 @@ async function apiCall(client, method, params = {}, { allowWrite = false } = {})
   return result;
 }
 
-async function start({ port = 9230, kill = false } = {}) {
+async function start({ port = 9230, forceRelaunch = false } = {}) {
   const s = await session.start("notion", {
     port,
-    kill,
+    forceRelaunch,
     target: (t) => t.url && t.url.includes("app.notion.com/p"),
   });
   await ensureMeta(s.client);

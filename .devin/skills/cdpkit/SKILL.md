@@ -28,7 +28,7 @@ Supported apps: `chrome`, `slack`, `notion`, `granola`.
 const app = "granola"; // or "slack", "notion", "chrome"
 const driver = require(`./drivers/${app}`);
 
-const s = await driver.start({ kill: false });
+const s = await driver.start();
 const ctx = await driver.getContext(s.client);
 console.log(JSON.stringify(ctx, null, 2));
 // ... use driver helpers ...
@@ -43,7 +43,7 @@ node -e "console.log(Object.keys(require('./drivers/granola')))"
 
 ## Lifecycle
 
-- Use `driver.start({ kill: false })` to attach to an already-open app.
+- Use `driver.start()` to attach to an already-open app.
 - Do not call `driver.emergencyStop()` as a routine cleanup step. There is no need to ever stop the driver; leave apps open.
 - Only use `driver.emergencyStop(s)` if you intentionally launched the app and want to quit it.
 
@@ -64,13 +64,13 @@ Functions available:
 - `granolastart` — patched Granola with CDP on port 9231
 - `chromestop`, `slackstop`, `notionstop`, `granolastop` — only use these when you intentionally want to quit the app
 
-**Agents must not call these shell functions directly.** They are user-facing helpers. If an app is not already open with CDP reachable, ask the user to run the appropriate `*start` command, then use `driver.start({ kill: false })` to attach.
+**Agents must not call these shell functions directly.** They are user-facing helpers. If an app is not already open with CDP reachable, ask the user to run the appropriate `*start` command, then use `driver.start()` to attach.
 
 `scripts/aliases.sh` resolves `CDPKIT_DIR` from its own location, so it works regardless of where the repo is cloned. The implementations call the cdpkit drivers directly (`granola.start({ launch: true })` for Granola).
 
 ## Granola setup
 
-Granola must be opened and logged in before cdpkit can attach. A fresh Granola launch always prompts for login/OAuth, which cdpkit cannot complete on its own, so any automation that tries to launch Granola from cold cannot get useful work done. Run `granolastart` (or open Granola manually), log in, then use `granola.start({ kill: false })` to attach.
+Granola must be opened and logged in before cdpkit can attach. A fresh Granola launch always prompts for login/OAuth, which cdpkit cannot complete on its own, so any automation that tries to launch Granola from cold cannot get useful work done. Run `granolastart` (or open Granola manually), log in, then use `granola.start()` to attach.
 
 ## Granola search
 
@@ -78,10 +78,10 @@ Granola uses a local SQLite cache (`granola-documents.db`) that mirrors document
 
 ```bash
 # Search the local DB (auto-syncs if the cache is older than 10 minutes)
-node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({kill:false});const r=await g.searchLocal(s.client,'Yan Shubhra');console.log(JSON.stringify(r,null,2));})();"
+node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start();const r=await g.searchLocal(s.client,'Yan Shubhra');console.log(JSON.stringify(r,null,2));})();"
 
 # Fetch the transcript for a specific document id
-node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({kill:false});const t=await g.getTranscript(s.client,'MEETING-ID');console.log(JSON.stringify(t,null,2));})();"
+node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start();const t=await g.getTranscript(s.client,'MEETING-ID');console.log(JSON.stringify(t,null,2));})();"
 ```
 
 - `granola.syncDocuments(client)` fetches all document IDs, expands them in 50-document batches, and upserts metadata/titles/notes into the local SQLite DB.
