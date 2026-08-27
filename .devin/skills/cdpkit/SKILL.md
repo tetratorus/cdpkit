@@ -47,6 +47,25 @@ node -e "console.log(Object.keys(require('./drivers/granola')))"
 - Do not call `driver.emergencyStop()` as a routine cleanup step. There is no need to ever stop the driver; leave apps open.
 - Only use `driver.emergencyStop(s)` if you intentionally launched the app and want to quit it.
 
+## Shell launcher aliases
+
+cdpkit ships `scripts/aliases.sh`, a bash/zsh-compatible source file that defines launcher functions. Add it to your shell rc:
+
+```bash
+# ~/.bashrc or ~/.zshrc
+source /path/to/cdpkit/scripts/aliases.sh
+```
+
+Functions available:
+
+- `chromestart [url]` — Chrome with CDP on port 9229
+- `slackstart` — Slack with CDP on port 9228
+- `notionstart` — Notion with CDP on port 9230
+- `granolastart` — patched Granola with CDP on port 9231
+- `chromestop`, `slackstop`, `notionstop`, `granolastop` — only use these when you intentionally want to quit the app
+
+`scripts/aliases.sh` resolves `CDPKIT_DIR` from its own location, so it works regardless of where the repo is cloned. The implementations call the cdpkit drivers directly (`granola.start({ launch: true })` for Granola).
+
 ## Granola setup
 
 Granola must be opened and logged in before cdpkit can attach. A fresh Granola launch always prompts for login/OAuth, which cdpkit cannot complete on its own, so any automation that tries to launch Granola from cold cannot get useful work done. Run `granolastart` (or open Granola manually), log in, then use `granola.start({ kill: false })` to attach.
