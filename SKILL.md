@@ -30,7 +30,7 @@ const s = await driver.start({ kill: false });
 const ctx = await driver.getContext(s.client);
 console.log(JSON.stringify(ctx, null, 2));
 // ... use driver helpers, e.g. driver.searchMessages, driver.search, driver.getText ...
-await driver.stop(s);
+// Leave the app running. There is no need to call driver.emergencyStop(s).
 ```
 
 To see what a driver exposes at runtime:
@@ -50,3 +50,4 @@ node -e "console.log(Object.keys(require('./drivers/slack')))"
 
 - Read-only by default. `apiCall` rejects writes unless `{ allowWrite: true }` is passed.
 - Do not post, send, edit, or mutate state in any app unless explicitly asked.
+- Leave apps running. Do not call `driver.emergencyStop(s)` as a routine cleanup step. Only use `emergencyStop` when you intentionally launched the app and want to quit it.

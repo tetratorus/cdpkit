@@ -117,7 +117,7 @@ async function start(appName, { host = "127.0.0.1", port, kill = false, target }
   return { client, target: chosen, host, port: targetPort, ownsProcess: true, appName };
 }
 
-async function stop(session) {
+async function emergencyStop(session) {
   if (session && session.client) {
     await transport.close(session.client);
   }
@@ -130,6 +130,6 @@ async function stop(session) {
 module.exports = {
   attach,
   start,
-  stop,
+  emergencyStop,
   reachable,
 };

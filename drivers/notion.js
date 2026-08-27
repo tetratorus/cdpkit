@@ -119,8 +119,8 @@ async function start({ port = 9230, kill = false } = {}) {
   return s;
 }
 
-async function stop(s) {
-  await session.stop(s);
+async function emergencyStop(s) {
+  await session.emergencyStop(s);
 }
 
 async function getCurrentPage(client) {
@@ -298,7 +298,7 @@ async function getContext(client) {
 
 module.exports = {
   start,
-  stop,
+  emergencyStop,
   getCurrentPage,
   getText,
   getFullPageText,

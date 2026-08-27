@@ -133,8 +133,8 @@ async function start({ port = 9231, kill = false } = {}) {
   return s;
 }
 
-async function stop(s) {
-  await session.stop(s);
+async function emergencyStop(s) {
+  await session.emergencyStop(s);
 }
 
 async function getCurrentPage(client) {
@@ -336,7 +336,7 @@ async function getTranscript(client, meetingId) {
 
 module.exports = {
   start,
-  stop,
+  emergencyStop,
   getCurrentPage,
   getText,
   getSelectedText,

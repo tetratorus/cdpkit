@@ -10,8 +10,8 @@ async function start({ port = 9229, kill = false, url } = {}) {
   return s;
 }
 
-async function stop(s) {
-  await session.stop(s);
+async function emergencyStop(s) {
+  await session.emergencyStop(s);
 }
 
 async function navigate(client, url) {
@@ -45,7 +45,7 @@ async function getContext(client) {
 
 module.exports = {
   start,
-  stop,
+  emergencyStop,
   navigate,
   getTitle,
   getText,

@@ -14,7 +14,7 @@ const slack = require("./drivers/slack");
 2. Get context: `driver.getContext(client)` returns the current state. Slack, Notion, and Granola also include a screenshot; Chrome returns title, URL, and visible text only because of screenshot safeguards.
 3. Inspect the returned state to identify the active channel, page, or selection.
 4. Fetch data with read methods like `getMessages`, `searchMessages`, `getText`, `search`, or (for Granola) `search-process`.
-5. Stop the session: `driver.stop(s)`.
+5. Leave the app running. There is no need to call `driver.emergencyStop(s)` unless you intentionally launched the app and want to quit it.
 
 ## Drivers
 
@@ -26,7 +26,7 @@ const slack = require("./drivers/slack");
 ## Core modules
 
 - `transport.js` — CDP connection and raw domain calls
-- `session.js` — launch, attach, and stop apps
+- `session.js` — launch, attach, and emergency-stop apps
 - `primitives.js` — common CDP primitives (`eval`, `getText`, `captureScreenshot`, `waitFor`)
 - `observation.js` — network and event observation helpers
 
@@ -55,13 +55,14 @@ cdpkit is read-only by default. Never send, post, edit, or mutate state in any a
 3. Get context with `getContext()` to receive a screenshot and the current state. Do not navigate away from what the user is already viewing unless they explicitly ask you to load a different page.
 4. Inspect the screenshot to identify the active channel, page, or selection.
 5. Fetch earlier or related data with read methods.
-6. Stop the session with `stop()`.
+6. Leave the app running. Do not stop it. Only call `driver.emergencyStop(s)` if you intentionally launched the app and want to quit it.
 
 ### Lifecycle
 
 - Reuse an open app instance when CDP is already reachable on the expected port.
 - If the app is open but CDP is not reachable, kill the process and relaunch it with `--remote-debugging-port`.
 - Only one instance should run at a time; replace the existing one when needed.
+- Never stop or kill an app that the user already had open. There is no need to call `driver.emergencyStop(s)`; leave apps running.
 
 ### Context capture
 
@@ -121,12 +122,12 @@ Granola searches run against a local SQLite cache (`granola-documents.db`) that 
 
 1. Search the local DB in one tool call:
    ```bash
-   node -e "const g = require('./drivers/granola'); (async () => { const s = await g.start({ kill: false }); const r = await g.searchLocal(s.client, 'Yan Shubhra'); console.log(JSON.stringify(r, null, 2)); await g.stop(s); })();"
+   node -e "const g = require('./drivers/granola'); (async () => { const s = await g.start({ kill: false }); const r = await g.searchLocal(s.client, 'Yan Shubhra'); console.log(JSON.stringify(r, null, 2)); })();"
    ```
 2. Inspect `results` for the right meeting. `total` is the number of local matches.
 3. When you have the right `id`, fetch the transcript in a separate tool call:
    ```bash
-   node -e "const g = require('./drivers/granola'); (async () => { const s = await g.start({ kill: false }); const t = await g.getTranscript(s.client, 'MEETING-ID'); console.log(JSON.stringify(t, null, 2)); await g.stop(s); })();"
+   node -e "const g = require('./drivers/granola'); (async () => { const s = await g.start({ kill: false }); const t = await g.getTranscript(s.client, 'MEETING-ID'); console.log(JSON.stringify(t, null, 2)); })();"
    ```
 
 - Use `granola.searchLocal` for all text searches. It syncs automatically. If you need a transcript, first find the document with `searchLocal`, then call `granola.getTranscript` with that `id`.

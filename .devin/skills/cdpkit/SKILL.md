@@ -44,8 +44,8 @@ node -e "console.log(Object.keys(require('./drivers/granola')))"
 ## Lifecycle
 
 - Use `driver.start({ kill: false })` to attach to an already-open app.
-- Do not call `driver.stop()` as a routine cleanup step. Only call `stop()` when you intentionally launched the app and want to quit it.
-- If the user's app was already open, leave it open.
+- Do not call `driver.emergencyStop()` as a routine cleanup step. There is no need to ever stop the driver; leave apps open.
+- Only use `driver.emergencyStop(s)` if you intentionally launched the app and want to quit it.
 
 ## Granola search
 
@@ -85,4 +85,4 @@ node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start({
 - Do not capture Chrome screenshots. They are sensitive and can trigger guardrails. Read the page with `getText`/`getTitle`/`getContext()` instead. Only capture a screenshot if the user explicitly asks for a visual artifact, and then use the underlying CDP primitives directly, not the chrome driver.
 - For Granola, always use `granola.searchLocal`. It syncs automatically. Do not call `granola.search` directly.
 - If you need a transcript, first find the document with `searchLocal`, then call `granola.getTranscript` with that `id`.
-- Do not stop or kill an app that the user already had open. Only call `driver.stop()` when you intentionally launched the app and want to close it.
+- Do not stop or kill an app that the user already had open. There is no need to ever stop the driver; leave apps open. Only use `driver.emergencyStop(s)` when you intentionally launched the app and want to close it.
