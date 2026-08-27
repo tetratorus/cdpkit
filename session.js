@@ -9,8 +9,8 @@ function sleep(ms) {
 
 async function reachable(host, port) {
   try {
-    await transport.listTargets(host, port);
-    return true;
+    const targets = await transport.listTargets(host, port);
+    return Array.isArray(targets) && targets.length > 0;
   } catch {
     return false;
   }

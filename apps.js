@@ -11,11 +11,12 @@ const apps = {
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       `--user-data-dir=${chromeProfile}`,
       `--remote-debugging-port=${port}`,
+      "--profile-directory=Default",
       "--no-first-run",
       "--no-default-browser-check",
     ],
     killCmd:
-      'killall -TERM "Google Chrome" 2>/dev/null; killall -TERM "Google Chrome Helper" 2>/dev/null; sleep 1; killall -9 "Google Chrome" 2>/dev/null; killall -9 "Google Chrome Helper" 2>/dev/null',
+      'killall -TERM "Google Chrome" 2>/dev/null; killall -TERM "Google Chrome Helper" 2>/dev/null; for i in $(seq 1 20); do sleep 0.5; pgrep -x "Google Chrome" >/dev/null 2>&1 || exit 0; done; killall -9 "Google Chrome" 2>/dev/null; killall -9 "Google Chrome Helper" 2>/dev/null',
     defaultPort: 9229,
   },
   slack: {
