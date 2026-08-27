@@ -3,7 +3,7 @@ const primitives = require("../primitives");
 const db = require("../db");
 
 const BATCH_SIZE = 50; // API rejects >50 document_ids with a 400
-const RATE_LIMIT_INTERVAL = 500;
+const RATE_LIMIT_INTERVAL = 0;
 const SYNC_STALE_MS = 60 * 60 * 1000; // resync local DB if older than 1 hour
 
 let lastCall = 0;
