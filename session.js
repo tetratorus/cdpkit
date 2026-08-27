@@ -68,7 +68,7 @@ async function attach({ host = "127.0.0.1", port, target } = {}) {
   return { client, target: chosen, host, port, ownsProcess: false };
 }
 
-async function start(appName, { host = "127.0.0.1", port, forceRelaunch = false, target } = {}) {
+async function start(appName, { host = "127.0.0.1", port, forceRelaunch = false, allowKill = true, allowLaunch = true, target } = {}) {
   if (!apps[appName]) throw new Error(`Unknown app: ${appName}`);
   const app = apps[appName];
   const targetPort = port || app.defaultPort;
@@ -86,9 +86,18 @@ async function start(appName, { host = "127.0.0.1", port, forceRelaunch = false,
     throw new Error(`Launching ${app.name} is only supported on macOS`);
   }
 
-  if (alreadyCdp || (await isAppRunning(app)) || forceRelaunch) {
+  const appRunning = await isAppRunning(app);
+
+  if (appRunning) {
+    if (!allowKill) {
+      throw new Error(`${app.name} is already running. Close it and start it with CDP manually.`);
+    }
     await killApp(app, true);
     await sleep(1000);
+  } else {
+    if (!allowLaunch) {
+      throw new Error(`${app.name} must be launched manually.`);
+    }
   }
 
   await launchApp(app, targetPort);

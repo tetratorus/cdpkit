@@ -124,17 +124,11 @@ async function getDocumentTranscript(client, documentId, workspaceId) {
   }));
 }
 
-async function start({ port = 9231, forceRelaunch = false, launch = false } = {}) {
-  if (!launch && !(await session.reachable("127.0.0.1", port))) {
-    throw new Error(
-      "Granola is not running with remote debugging enabled. " +
-      "Open Granola, log in, and ensure it was launched with CDP " +
-      "(for example, run `granolastart`) before using the driver."
-    );
-  }
+async function start({ port = 9231, launch = false } = {}) {
   const s = await session.start("granola", {
     port,
-    forceRelaunch,
+    allowKill: false,
+    allowLaunch: launch,
     target: (t) => t.url && t.url.startsWith("app://ui"),
   });
   return s;

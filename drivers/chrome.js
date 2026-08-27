@@ -2,8 +2,8 @@ const session = require("../session");
 const transport = require("../transport");
 const primitives = require("../primitives");
 
-async function start({ port = 9229, forceRelaunch = false, url } = {}) {
-  const s = await session.start("chrome", { port, forceRelaunch });
+async function start({ port = 9229, url } = {}) {
+  const s = await session.start("chrome", { port, allowKill: false });
   if (url) {
     await navigate(s.client, url);
   }
