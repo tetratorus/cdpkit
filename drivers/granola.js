@@ -291,7 +291,6 @@ async function searchLocal(client, query, { folder, limit = 100 } = {}) {
 }
 
 async function getNote(client, documentId) {
-  await ensureSynced(client);
   const docs = await getDocumentsBatch(client, [documentId]);
   if (!docs.length) return null;
   const doc = docs[0];
@@ -325,7 +324,6 @@ async function getRecentCalls(client, { limit = 10, folder } = {}) {
 }
 
 async function getTranscript(client, meetingId) {
-  await ensureSynced(client);
   const segs = await getDocumentTranscript(client, meetingId);
   const text = segs.map((s) => s.text).join("\n");
   return {
