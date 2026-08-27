@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Shell launcher aliases for cdpkit.
-# Source this file in ~/.bashrc or ~/.zshrc:
+# Run `scripts/install-aliases.sh` to add the source line to ~/.zshrc or ~/.bashrc.
+# Or source this file directly in your shell rc:
 #   source /path/to/cdpkit/scripts/aliases.sh
 #
 # Provides:

@@ -55,12 +55,13 @@ Do not call `driver.emergencyStop()` as a routine cleanup step. There is no need
 
 ## Shell launcher aliases
 
-cdpkit ships `scripts/aliases.sh`, a bash/zsh-compatible source file that defines launcher functions for the **user**. Add it to your shell rc:
+cdpkit ships `scripts/aliases.sh`, a bash/zsh-compatible source file that defines launcher functions for the **user**. Install it into your shell rc with:
 
 ```bash
-# ~/.bashrc or ~/.zshrc
-source /path/to/cdpkit/scripts/aliases.sh
+./scripts/install-aliases.sh
 ```
+
+This detects the cdpkit path and appends a `source` line to `~/.zshrc` (or `~/.bashrc`). You can also pass an explicit rc file: `./scripts/install-aliases.sh ~/.zshrc`.
 
 Functions available:
 
