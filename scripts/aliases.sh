@@ -4,13 +4,17 @@
 #   source /path/to/cdpkit/scripts/aliases.sh
 #
 # Provides:
-#   chromestart [url]   start Chrome with CDP on port 9229
+#   chromestart [url]   Chrome with CDP on port 9229. Attaches if CDP is up,
+#                       starts from cold if Chrome is not running, errors if
+#                       Chrome is already running without CDP.
 #   chromestop          stop Chrome
-#   slackstart          start Slack with CDP on port 9228
+#   slackstart          Slack with CDP on port 9228. Attaches, kills/restarts, or starts.
 #   slackstop           stop Slack
-#   notionstart         start Notion with CDP on port 9230
+#   notionstart         Notion with CDP on port 9230. Attaches, kills/restarts, or starts.
 #   notionstop          stop Notion
-#   granolastart        start patched Granola with CDP on port 9231
+#   granolastart        patched Granola with CDP on port 9231. Attaches if CDP is up,
+#                       starts from cold if Granola is not running, errors if
+#                       Granola is already running without CDP.
 #   granolastop         stop Granola
 
 # Resolve CDPKIT_DIR from this script's location when sourced.

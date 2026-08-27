@@ -43,9 +43,15 @@ node -e "console.log(Object.keys(require('./drivers/granola')))"
 
 ## Lifecycle
 
-- Use `driver.start()` to attach to an already-open app.
-- Do not call `driver.emergencyStop()` as a routine cleanup step. There is no need to ever stop the driver; leave apps open.
-- Only use `driver.emergencyStop(s)` if you intentionally launched the app and want to quit it.
+`driver.start()` first checks whether the CDP port is reachable. If it is, it attaches and does not restart.
+
+If CDP is not reachable:
+
+- **Slack / Notion** — if the app is running, kill and relaunch it with `--remote-debugging-port`; if it is not running, start it.
+- **Chrome** — if the app is not running, start it from cold; if it is already running without CDP, throw and ask the user to run `chromestart` (or quit Chrome first).
+- **Granola** — always throw and ask the user to run `granolastart`. The agent never launches or kills Granola.
+
+Do not call `driver.emergencyStop()` as a routine cleanup step. There is no need to ever stop the driver; leave apps open. Only use `driver.emergencyStop(s)` if you intentionally launched the app and want to quit it.
 
 ## Shell launcher aliases
 
@@ -58,10 +64,10 @@ source /path/to/cdpkit/scripts/aliases.sh
 
 Functions available:
 
-- `chromestart [url]` — Chrome with CDP on port 9229
-- `slackstart` — Slack with CDP on port 9228
-- `notionstart` — Notion with CDP on port 9230
-- `granolastart` — patched Granola with CDP on port 9231
+- `chromestart [url]` — Chrome with CDP on port 9229. Attaches if CDP is already up, starts from cold if Chrome is not running, and errors if Chrome is already running without CDP.
+- `slackstart` — Slack with CDP on port 9228. Attaches if CDP is up, otherwise kills/restarts or starts Slack.
+- `notionstart` — Notion with CDP on port 9230. Attaches if CDP is up, otherwise kills/restarts or starts Notion.
+- `granolastart` — patched Granola with CDP on port 9231. Attaches if CDP is already up, starts from cold if Granola is not running, and errors if Granola is already running without CDP.
 - `chromestop`, `slackstop`, `notionstop`, `granolastop` — only use these when you intentionally want to quit the app
 
 **Agents must not call these shell functions directly.** They are user-facing helpers. If an app is not already open with CDP reachable, ask the user to run the appropriate `*start` command, then use `driver.start()` to attach.
@@ -70,7 +76,7 @@ Functions available:
 
 ## Granola setup
 
-Granola must be opened and logged in before cdpkit can attach. A fresh Granola launch always prompts for login/OAuth, which cdpkit cannot complete on its own, so any automation that tries to launch Granola from cold cannot get useful work done. Run `granolastart` (or open Granola manually), log in, then use `granola.start()` to attach.
+Granola must be opened and logged in before cdpkit can attach. A fresh Granola launch always prompts for login/OAuth, which cdpkit cannot complete on its own. `granolastart` starts Granola from cold if it is not running, or attaches if CDP is already up; it errors if Granola is already running without CDP. After the user logs in, use `granola.start()` to attach.
 
 ## Granola search
 
