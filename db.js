@@ -1,7 +1,9 @@
 const { DatabaseSync } = require("node:sqlite");
+const fs = require("node:fs");
 const path = require("path");
 
-const DB_PATH = process.env.GRANOLA_DB_PATH || path.join(__dirname, "granola-documents.db");
+const DB_PATH = process.env.GRANOLA_DB_PATH || path.join(__dirname, "data", "granola-documents.db");
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true, mode: 0o700 });
 const db = new DatabaseSync(DB_PATH);
 
 db.exec(`
@@ -27,36 +29,46 @@ db.exec(`
 
 db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA busy_timeout = 5000;");
+db.exec("CREATE INDEX IF NOT EXISTS idx_documents_folder ON documents(folder);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);");
 
 function upsertDocuments(docs, folder) {
-  const stmt = db.prepare(`
-    INSERT INTO documents
-      (id, title, created_at, updated_at, notes_plain, notes_markdown, people_json, folder, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      title = excluded.title,
-      created_at = excluded.created_at,
-      updated_at = excluded.updated_at,
-      notes_plain = excluded.notes_plain,
-      notes_markdown = excluded.notes_markdown,
-      people_json = excluded.people_json,
-      folder = excluded.folder,
-      synced_at = excluded.synced_at
-  `);
-  const now = Date.now();
-  for (const doc of docs) {
-    const people = JSON.stringify(doc.people || []);
-    stmt.run(
-      doc.id,
-      doc.title || "",
-      doc.created_at || "",
-      doc.updated_at || "",
-      doc.notes_plain || "",
-      doc.notes_markdown || "",
-      people,
-      folder || "",
-      now
-    );
+  if (!docs.length) return;
+  db.exec("BEGIN TRANSACTION");
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO documents
+        (id, title, created_at, updated_at, notes_plain, notes_markdown, people_json, folder, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        notes_plain = excluded.notes_plain,
+        notes_markdown = excluded.notes_markdown,
+        people_json = excluded.people_json,
+        folder = excluded.folder,
+        synced_at = excluded.synced_at
+    `);
+    const now = Date.now();
+    for (const doc of docs) {
+      const people = JSON.stringify(doc.people || []);
+      stmt.run(
+        doc.id,
+        doc.title || "",
+        doc.created_at || "",
+        doc.updated_at || "",
+        doc.notes_plain || "",
+        doc.notes_markdown || "",
+        people,
+        folder || "",
+        now
+      );
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
   }
 }
 
@@ -140,6 +152,17 @@ function deleteDocument(id) {
   stmt.run(id);
 }
 
+function deleteDocuments(ids) {
+  if (!ids.length) return;
+  const chunkSize = 500;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "?").join(",");
+    const stmt = db.prepare(`DELETE FROM documents WHERE id IN (${placeholders})`);
+    stmt.run(...chunk);
+  }
+}
+
 function clearDocuments() {
   db.exec("DELETE FROM documents");
   db.exec("DELETE FROM sync_meta");
@@ -157,5 +180,6 @@ module.exports = {
   getDocumentIdsForFolder,
   getAllDocumentIds,
   deleteDocument,
+  deleteDocuments,
   clearDocuments,
 };

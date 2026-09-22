@@ -1,6 +1,3 @@
 node_modules/
-granola-documents.db
-.search-state/
+/data/
 *.log
-*-transcript.txt
-granola-documents.db-*

@@ -8,6 +8,7 @@ const chrome = require("./drivers/chrome");
 const slack = require("./drivers/slack");
 const notion = require("./drivers/notion");
 const granola = require("./drivers/granola");
+const teams = require("./drivers/teams");
 
 module.exports = {
   transport,
@@ -20,4 +21,5 @@ module.exports = {
   slack,
   notion,
   granola,
+  teams,
 };

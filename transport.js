@@ -21,8 +21,10 @@ function defaultPageTarget(targets) {
   return targets.find((t) => t.type === "page");
 }
 
-function createProbedClient({ host, port, predicate, realClient, restart }) {
+function createProbedClient({ host, port, target, realClient, restart }) {
   const handlers = new Map();
+  const targetId = target.id;
+  let currentTarget = target;
   let currentClient = realClient;
 
   async function closeReal() {
@@ -53,11 +55,14 @@ function createProbedClient({ host, port, predicate, realClient, restart }) {
   async function reconnect() {
     await closeReal();
     const targets = await listTargets(host, port);
-    const chosen = predicate ? findTarget(targets, predicate) : defaultPageTarget(targets);
+    const chosen = targets.find((t) => t.id === targetId);
     if (!chosen) {
-      throw new Error(`No CDP target matched ${JSON.stringify(predicate)} on ${host}:${port}`);
+      throw Object.assign(new Error(`CDP target ${targetId} missing on ${host}:${port}; attach to a replacement explicitly`), {
+        code: "CDP_TARGET_MISSING",
+      });
     }
     currentClient = await CDP({ host, port, target: chosen });
+    currentTarget = chosen;
     await attachHandlers(currentClient);
   }
 
@@ -80,7 +85,8 @@ function createProbedClient({ host, port, predicate, realClient, restart }) {
         await reconnect();
         const ping = await probe.pingClient(currentClient, 3000);
         if (!ping.ok) throw new Error("ping returned unexpected value");
-      } catch {
+      } catch (error) {
+        if (error.code === "CDP_TARGET_MISSING") throw error;
         // reconnect failed; try restart if available
         await restartAndReconnect();
         const ping = await probe.pingClient(currentClient, 3000);
@@ -94,7 +100,7 @@ function createProbedClient({ host, port, predicate, realClient, restart }) {
 
     try {
       const result = await currentClient[domain][method](params);
-      state.setLastWorking(host, port, { targetId: currentClient._target && currentClient._target.id });
+      state.setLastWorking(host, port, { targetId });
       return result;
     } catch (err) {
       state.setLastFailure(host, port, err);
@@ -108,7 +114,7 @@ function createProbedClient({ host, port, predicate, realClient, restart }) {
       get(_, prop) {
         if (prop === IS_PROBED || prop === "__isProbedClient") return true;
         if (prop === "_ws") return currentClient && currentClient._ws;
-        if (prop === "_target") return currentClient && currentClient._target;
+        if (prop === "_target") return currentTarget;
         if (prop === "then") return undefined;
         if (prop === "close") {
           return () => closeReal();
@@ -161,7 +167,7 @@ async function connect({ host = "127.0.0.1", port = 9222, target, restart } = {}
     throw new Error(`No CDP target matched ${JSON.stringify(target)} on ${host}:${port}`);
   }
   const realClient = await CDP({ host, port, target: chosen });
-  const client = createProbedClient({ host, port, predicate: target, realClient, restart });
+  const client = createProbedClient({ host, port, target: chosen, realClient, restart });
   return { client, target: chosen };
 }
 

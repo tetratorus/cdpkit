@@ -38,13 +38,24 @@ const apps = {
     name: "Granola",
     processName: "Granola",
     launchArgs: (port) => [
-      "/Applications/Granola-cdp.app/Contents/MacOS/Granola",
+      `${home}/Applications/Granola-cdp.app/Contents/MacOS/Granola`,
       `--granola-cdp-token=x`,
       `--remote-debugging-port=${port}`,
     ],
     killCmd:
-      'pkill -TERM -f "/Applications/Granola-cdp.app" 2>/dev/null; pkill -TERM -f "Granola Helper" 2>/dev/null; sleep 1; pkill -9 -f "/Applications/Granola-cdp.app" 2>/dev/null; pkill -9 -f "Granola Helper" 2>/dev/null',
+      'pkill -TERM -f "Granola-cdp.app" 2>/dev/null; sleep 1; pkill -9 -f "Granola-cdp.app" 2>/dev/null',
     defaultPort: 9231,
+  },
+  teams: {
+    name: "Microsoft Teams",
+    processName: "MSTeams",
+    launchArgs: (port) => [
+      "/usr/bin/env",
+      `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1`,
+      "/Applications/Microsoft Teams.app/Contents/MacOS/MSTeams",
+    ],
+    killCmd: "pkill -TERM -x MSTeams",
+    defaultPort: 9232,
   },
 };
 

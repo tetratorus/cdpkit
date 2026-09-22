@@ -1,16 +1,24 @@
 {
   "name": "cdpkit",
   "version": "0.0.1",
-  "description": "CDP automation core for agentic control of Chrome, Slack, and Notion.",
+  "description": "CDP automation core for Chrome, Slack, Notion, Granola, and Microsoft Teams.",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "probe": "node bin/probe.js"
+    "test": "node --test scripts/*.test.js",
+    "probe": "node scripts/probe.js",
+    "download-slack-file": "node scripts/download_slack_file.js",
+    "patch-granola": "node scripts/patch_granola.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "devDependencies": {
+    "@electron/asar": "4.3.0"
+  },
   "dependencies": {
     "chrome-remote-interface": "^0.34.0"
   }

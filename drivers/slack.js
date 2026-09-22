@@ -79,7 +79,7 @@ async function ensureApiMeta(client) {
   return meta;
 }
 
-async function start({ port = 9228, forceRelaunch = false } = {}) {
+async function slack({ port = 9228, forceRelaunch = false } = {}) {
   const s = await session.start("slack", { port, forceRelaunch });
   await ensureApiMeta(s.client);
   return s;
@@ -274,15 +274,14 @@ async function getContext(client) {
   };
 }
 
-module.exports = {
-  start,
-  emergencyStop,
-  getCurrentUser,
-  getCurrentView,
-  getMessages,
-  getThreadReplies,
-  getChannels,
-  searchMessages,
-  getContext,
-  apiCall,
-};
+slack.emergencyStop = emergencyStop;
+slack.getCurrentUser = getCurrentUser;
+slack.getCurrentView = getCurrentView;
+slack.getMessages = getMessages;
+slack.getThreadReplies = getThreadReplies;
+slack.getChannels = getChannels;
+slack.searchMessages = searchMessages;
+slack.getContext = getContext;
+slack.apiCall = apiCall;
+
+module.exports = slack;

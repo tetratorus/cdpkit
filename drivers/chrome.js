@@ -2,8 +2,8 @@ const session = require("../session");
 const transport = require("../transport");
 const primitives = require("../primitives");
 
-async function start({ port = 9229, url } = {}) {
-  const s = await session.start("chrome", { port, allowKill: false });
+async function chrome({ port = 9229, url, target } = {}) {
+  const s = await session.start("chrome", { port, target, allowKill: false });
   if (url) {
     await navigate(s.client, url);
   }
@@ -43,12 +43,11 @@ async function getContext(client) {
   return { app: "chrome", title, url, text };
 }
 
-module.exports = {
-  start,
-  emergencyStop,
-  navigate,
-  getTitle,
-  getText,
-  run,
-  getContext,
-};
+chrome.emergencyStop = emergencyStop;
+chrome.navigate = navigate;
+chrome.getTitle = getTitle;
+chrome.getText = getText;
+chrome.run = run;
+chrome.getContext = getContext;
+
+module.exports = chrome;

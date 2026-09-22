@@ -68,7 +68,7 @@ _cdpkit_stop() {
 }
 
 chromestart() {
-  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/chrome').start({ url: process.argv[1] }).then(async s => { console.log('chrome started on port', s.port); await require('./transport').close(s.client); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" "$@" )
+  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/chrome')({ url: process.argv[1] }).then(async s => { console.log('chrome started on port', s.port); await require('./transport').close(s.client); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" "$@" )
 }
 
 chromestop() {
@@ -76,7 +76,7 @@ chromestop() {
 }
 
 slackstart() {
-  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/slack').start().then(s => { console.log('slack started on port', s.port); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" )
+  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/slack')().then(s => { console.log('slack started on port', s.port); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" )
 }
 
 slackstop() {
@@ -84,7 +84,7 @@ slackstop() {
 }
 
 notionstart() {
-  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/notion').start().then(s => { console.log('notion started on port', s.port); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" )
+  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/notion')().then(s => { console.log('notion started on port', s.port); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" )
 }
 
 notionstop() {
@@ -92,9 +92,13 @@ notionstop() {
 }
 
 granolastart() {
-  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/granola').start({ launch: true }).then(s => { console.log('granola cdp on port', s.port); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" )
+  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/granola')({ launch: true }).then(s => { console.log('granola cdp on port', s.port); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" )
 }
 
 granolastop() {
   _cdpkit_stop 9231 Granola
+}
+
+teamsstart() {
+  ( cd "$CDPKIT_DIR" && node -e "require('./session').start('teams', { allowKill: false }).then(async s => { console.log('Teams desktop CDP on port', s.port); await require('./transport').close(s.client); process.exit(0); }).catch(e => { console.error(e.message); process.exit(1); })" )
 }

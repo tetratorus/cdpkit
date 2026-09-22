@@ -1,6 +1,6 @@
 ---
 name: cdpkit
-description: Drive Chrome/Slack/Notion/Granola on the user's desktop via the cdpkit package
+description: Drive Chrome/Slack/Notion/Granola/Teams on the user's desktop via the cdpkit package
 argument-hint: "<app> <task>"
 allowed-tools:
   - exec
@@ -12,23 +12,25 @@ triggers:
 
 # cdpkit skill
 
-Use the cdpkit Node package as the working directory for all package commands. If cdpkit is the project root, that is `.`; otherwise it is the `cdpkit/` subpackage.
+**Working directory:** Use the cdpkit package root as the working directory for all cdpkit commands and `require('./drivers/<app>')` calls. Do not run commands from `.devin/skills/cdpkit/`.
 
-Install dependencies first:
+**Scripts and data:** Keep reusable toolkit utilities in `scripts/`. Put all one-off scripts and non-core engineering work in `data/scripts/`. Put private material, transcripts, search results, caches, and generated artifacts in `data/`. The entire `data/` directory is gitignored; never stage its contents.
+
+Use Node.js 22.13 or newer. Install locked dependencies first:
 
 ```bash
-npm install
+npm ci
 ```
 
 ## Drivers
 
-Supported apps: `chrome`, `slack`, `notion`, `granola`.
+Supported apps: `chrome`, `slack`, `notion`, `granola`, `teams`.
 
 ```js
 const app = "granola"; // or "slack", "notion", "chrome"
 const driver = require(`./drivers/${app}`);
 
-const s = await driver.start();
+const s = await driver();
 const ctx = await driver.getContext(s.client);
 console.log(JSON.stringify(ctx, null, 2));
 // ... use driver helpers ...
@@ -43,7 +45,7 @@ node -e "console.log(Object.keys(require('./drivers/granola')))"
 
 ## Lifecycle
 
-`driver.start()` first checks whether the CDP port is reachable. If it is, it attaches and does not restart.
+`driver()` first checks whether the CDP port is reachable. If it is, it attaches and does not restart.
 
 If CDP is not reachable:
 
@@ -71,24 +73,30 @@ Functions available:
 - `granolastart` — patched Granola with CDP on port 9231. Attaches if CDP is already up, starts from cold if Granola is not running, and errors if Granola is already running without CDP.
 - `chromestop`, `slackstop`, `notionstop`, `granolastop` — only use these when you intentionally want to quit the app
 
-**Agents must not call these shell functions directly.** They are user-facing helpers. If an app is not already open with CDP reachable, ask the user to run the appropriate `*start` command, then use `driver.start()` to attach.
+**Agents must not call these shell functions directly.** They are user-facing helpers. If an app is not already open with CDP reachable, ask the user to run the appropriate `*start` command, then use `driver()` to attach.
 
-`scripts/aliases.sh` resolves `CDPKIT_DIR` from its own location, so it works regardless of where the repo is cloned. The implementations call the cdpkit drivers directly (`granola.start({ launch: true })` for Granola).
+`scripts/aliases.sh` resolves `CDPKIT_DIR` from its own location, so it works regardless of where the repo is cloned. The implementations call the cdpkit drivers directly (`granola({ launch: true })` for Granola).
+
+## Teams desktop
+
+`teams()` attaches to the native macOS app on loopback port 9232. It never launches or restarts the app. The user-facing `teamsstart` launcher enables WebView2 CDP from a cold start and refuses to restart an already-running app without CDP.
+
+`teams.getContext(client)` returns `{ app, title, url, text }` without screenshots or service API calls. Default attachment selects a focused populated Teams page or the sole populated page. If several match, use `teams.listTargets()` and pass `teams({ target: { id: "TARGET_ID" } })`. Connections stay pinned to that target ID.
 
 ## Granola setup
 
-Granola must be opened and logged in before cdpkit can attach. A fresh Granola launch always prompts for login/OAuth, which cdpkit cannot complete on its own. `granolastart` starts Granola from cold if it is not running, or attaches if CDP is already up; it errors if Granola is already running without CDP. After the user logs in, use `granola.start()` to attach.
+Granola must be opened and logged in before cdpkit can attach. A fresh Granola launch always prompts for login/OAuth, which cdpkit cannot complete on its own. `granolastart` starts Granola from cold if it is not running, or attaches if CDP is already up; it errors if Granola is already running without CDP. After the user logs in, use `granola()` to attach.
 
 ## Granola search
 
-Granola uses a local SQLite cache (`granola-documents.db`) that mirrors document metadata. Searches run against this local DB; transcripts are fetched separately only when needed.
+Granola uses a local SQLite cache (`data/granola-documents.db`) that mirrors document metadata. Searches run against this local DB; transcripts are fetched separately only when needed.
 
 ```bash
 # Search the local DB (auto-syncs if the cache is older than 10 minutes)
-node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start();const r=await g.searchLocal(s.client,'Yan Shubhra');console.log(JSON.stringify(r,null,2));})();"
+node -e "const g=require('./drivers/granola');(async()=>{const s=await g();const r=await g.searchLocal(s.client,'project planning');console.log(JSON.stringify(r,null,2));})();"
 
 # Fetch the transcript for a specific document id
-node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start();const t=await g.getTranscript(s.client,'MEETING-ID');console.log(JSON.stringify(t,null,2));})();"
+node -e "const g=require('./drivers/granola');(async()=>{const s=await g();const t=await g.getTranscript(s.client,'MEETING-ID');console.log(JSON.stringify(t,null,2));})();"
 ```
 
 - `granola.syncDocuments(client)` fetches all document IDs, expands them in 50-document batches, and upserts metadata/titles/notes into the local SQLite DB.
@@ -101,6 +109,16 @@ node -e "const g=require('./drivers/granola');(async()=>{const s=await g.start()
 - **Document ID** — a UUID. The cache stores these plus metadata.
 - **Document / meeting** — the object returned by `get-documents-batch`: `id`, `title`, `created_at`, `notes_plain`, `notes_markdown`, `people`, `overview`, etc. Not the transcript.
 - **Transcript** — the spoken text from `get-document-transcript`, fetched separately with `granola.getTranscript`.
+
+## Slack file downloads
+
+Use `scripts/download_slack_file.js` to download a file posted in a Slack channel:
+
+```bash
+node scripts/download_slack_file.js <channel> "<file-name-or-query>" [output-directory]
+```
+
+**Pitfall:** `files.slack.com` blocks the Slack renderer's `fetch()` when custom headers like `Authorization` are added. Keep credentials inside the renderer by passing `{ credentials: 'include' }` and returning the bytes through CDP. Never ship Slack tokens/cookies out to Node `https`.
 
 ## Where to learn the API
 

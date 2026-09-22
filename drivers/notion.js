@@ -109,7 +109,7 @@ async function apiCall(client, method, params = {}, { allowWrite = false } = {})
   return result;
 }
 
-async function start({ port = 9230, forceRelaunch = false } = {}) {
+async function notion({ port = 9230, forceRelaunch = false } = {}) {
   const s = await session.start("notion", {
     port,
     forceRelaunch,
@@ -296,17 +296,16 @@ async function getContext(client) {
   };
 }
 
-module.exports = {
-  start,
-  emergencyStop,
-  getCurrentPage,
-  getText,
-  getFullPageText,
-  loadPage,
-  search,
-  openPage,
-  goBack,
-  goForward,
-  getContext,
-  apiCall,
-};
+notion.emergencyStop = emergencyStop;
+notion.getCurrentPage = getCurrentPage;
+notion.getText = getText;
+notion.getFullPageText = getFullPageText;
+notion.loadPage = loadPage;
+notion.search = search;
+notion.openPage = openPage;
+notion.goBack = goBack;
+notion.goForward = goForward;
+notion.getContext = getContext;
+notion.apiCall = apiCall;
+
+module.exports = notion;

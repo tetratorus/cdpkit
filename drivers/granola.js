@@ -5,21 +5,70 @@ const db = require("../db");
 const BATCH_SIZE = 50; // API rejects >50 document_ids with a 400
 const RATE_LIMIT_INTERVAL = 0;
 const SYNC_STALE_MS = 60 * 60 * 1000; // resync local DB if older than 1 hour
+const MAX_CONCURRENCY = 30;
+const FOLDER_CONCURRENCY = 30;
 
 let lastCall = 0;
-let queue = Promise.resolve();
+let active = 0;
+const pending = [];
+
+async function processQueue() {
+  if (active >= MAX_CONCURRENCY || !pending.length) return;
+  active++;
+  const { fn, resolve, reject } = pending.shift();
+  const now = Date.now();
+  const wait = Math.max(0, lastCall + RATE_LIMIT_INTERVAL - now);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastCall = Date.now();
+  try {
+    resolve(await fn());
+  } catch (err) {
+    reject(err);
+  } finally {
+    active--;
+    processQueue();
+  }
+}
 
 function withRateLimit(fn) {
-  const p = queue.then(async () => {
-    const now = Date.now();
-    const wait = Math.max(0, lastCall + RATE_LIMIT_INTERVAL - now);
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    lastCall = Date.now();
-    return fn();
+  return new Promise((resolve, reject) => {
+    pending.push({ fn, resolve, reject });
+    processQueue();
   });
-  queue = p.catch(() => {});
-  return p;
 }
+
+function runWithConcurrency(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let index = 0;
+  let active = 0;
+  let failed = false;
+  return new Promise((resolve, reject) => {
+    function next() {
+      if (failed) return;
+      if (index === items.length && active === 0) {
+        resolve(results);
+        return;
+      }
+      while (active < concurrency && index < items.length) {
+        active++;
+        const i = index++;
+        Promise.resolve(fn(items[i], i)).then((res) => {
+          results[i] = res;
+          active--;
+          next();
+        }).catch((err) => {
+          if (!failed) {
+            failed = true;
+            reject(err);
+          }
+        });
+      }
+    }
+    next();
+  });
+}
+
+let syncPromise = null;
 
 function _apiCall(client, endpoint, body, { workspaceId } = {}) {
   return primitives.eval(
@@ -124,7 +173,23 @@ async function getDocumentTranscript(client, documentId, workspaceId) {
   }));
 }
 
-async function start({ port = 9231, launch = false } = {}) {
+async function fetchDocumentBatches(client, ids, workspaceId, { batchSize = BATCH_SIZE, onProgress } = {}) {
+  if (!ids.length) return [];
+  const batches = [];
+  for (let i = 0; i < ids.length; i += batchSize) {
+    batches.push(ids.slice(i, i + batchSize));
+  }
+  const results = await Promise.all(
+    batches.map(async (batch) => {
+      const docs = await getDocumentsBatch(client, batch, workspaceId);
+      if (onProgress) onProgress(docs.length);
+      return docs;
+    })
+  );
+  return results.flat();
+}
+
+async function granola({ port = 9231, launch = false } = {}) {
   const s = await session.start("granola", {
     port,
     allowKill: false,
@@ -177,92 +242,86 @@ async function getContext(client) {
 }
 
 async function fetchDocumentListSummaries(client, listId, workspaceId) {
-  const summaries = [];
-  let offset = 0;
-  while (true) {
-    const data = await apiCall(client, "get-document-list", { list_id: listId, limit: 1000, offset }, { workspaceId });
-    const docs = data.documents || [];
-    if (!docs.length) break;
-    for (const d of docs) {
-      summaries.push({ id: d.id, updated_at: d.updated_at });
-    }
-    if (docs.length < 1000) break;
-    offset += 1000;
-  }
-  return summaries;
+  const data = await apiCall(client, "get-document-list", { list_id: listId, limit: 1000000, offset: 0 }, { workspaceId });
+  const docs = data.documents || [];
+  return docs.map((d) => ({ id: d.id, updated_at: d.updated_at }));
 }
 
 async function syncDocuments(client) {
+  if (syncPromise) return syncPromise;
+  syncPromise = (async () => {
+    try {
+      return await _syncDocuments(client);
+    } finally {
+      syncPromise = null;
+    }
+  })();
+  return syncPromise;
+}
+
+async function _syncDocuments(client) {
   console.log("reading Granola cache...");
   const { workspaceId, documentLists, folders, folderMeta } = await getDocumentListIds(client, { maxDocs: null });
   console.log(`cache read: ${folders.length} folders`);
   const now = Date.now();
   const lastSync = db.getLastSyncedAt();
-  let fetched = 0;
-  let unchanged = 0;
-  let skippedFolders = 0;
-  if (!lastSync) {
-    // Initial/catch-up sync: the DB is empty or a previous initial sync was interrupted.
-    // Use the cache's document IDs directly; skip the per-folder list-summary calls.
-    const syncedIds = db.getAllDocumentIds();
-    for (const folderId of Object.keys(documentLists)) {
-      const missing = documentLists[folderId].filter((id) => !syncedIds.has(id));
-      for (let i = 0; i < missing.length; i += BATCH_SIZE) {
-        const batch = missing.slice(i, i + BATCH_SIZE);
-        const docs = await getDocumentsBatch(client, batch, workspaceId);
-        db.upsertDocuments(docs, folderId);
-        fetched += docs.length;
-        if (fetched % 500 === 0) console.log(`synced ${fetched} documents...`);
-      }
-      const m = folderMeta[folderId];
-      if (m) db.setFolderSyncAt(folderId, m.updated_at);
-    }
-  } else {
-    // Incremental sync: skip folders whose metadata updated_at has not changed.
-    for (const folderId of Object.keys(documentLists)) {
-      const m = folderMeta[folderId];
+  const syncedIds = lastSync ? null : db.getAllDocumentIds();
+
+  const stats = { fetched: 0, unchanged: 0, skippedFolders: 0 };
+  const folderIds = Object.keys(documentLists);
+
+  await runWithConcurrency(folderIds, FOLDER_CONCURRENCY, async (folderId) => {
+    const ids = documentLists[folderId] || [];
+    const m = folderMeta[folderId];
+
+    if (lastSync) {
       const serverUpdatedAt = m ? m.updated_at : null;
       const localUpdatedAt = db.getFolderSyncAt(folderId);
-      if (serverUpdatedAt && localUpdatedAt && serverUpdatedAt === localUpdatedAt) {
-        unchanged += documentLists[folderId].length;
-        skippedFolders++;
-        continue;
+      if (serverUpdatedAt && localUpdatedAt && String(serverUpdatedAt) === String(localUpdatedAt)) {
+        stats.unchanged += ids.length;
+        stats.skippedFolders++;
+        return;
       }
       if (serverUpdatedAt && localUpdatedAt === null) {
-        // First incremental sync after initial sync: set the baseline and skip.
         db.setFolderSyncAt(folderId, serverUpdatedAt);
-        unchanged += documentLists[folderId].length;
-        skippedFolders++;
-        continue;
+        stats.unchanged += ids.length;
+        stats.skippedFolders++;
+        return;
       }
+    }
+
+    let toFetch = [];
+    if (!lastSync) {
+      toFetch = ids.filter((id) => !syncedIds.has(id));
+    } else {
       const summaries = await fetchDocumentListSummaries(client, folderId, workspaceId);
       const currentIds = new Set(summaries.map((s) => s.id));
       const localIds = db.getDocumentIdsForFolder(folderId);
-      for (const id of localIds) {
-        if (!currentIds.has(id)) db.deleteDocument(id);
-      }
-      const toFetch = [];
+      const toDelete = localIds.filter((id) => !currentIds.has(id));
+      if (toDelete.length) db.deleteDocuments(toDelete);
       for (const s of summaries) {
         const existing = db.getDocument(s.id);
-        if (!existing || existing.updated_at !== s.updated_at) {
+        if (!existing || String(existing.updated_at) !== String(s.updated_at)) {
           toFetch.push(s.id);
         } else {
-          unchanged++;
+          stats.unchanged++;
         }
       }
-      for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
-        const batch = toFetch.slice(i, i + BATCH_SIZE);
-        const docs = await getDocumentsBatch(client, batch, workspaceId);
-        db.upsertDocuments(docs, folderId);
-        fetched += docs.length;
-        if (fetched % 500 === 0) console.log(`synced ${fetched} documents...`);
-      }
-      if (m) db.setFolderSyncAt(folderId, m.updated_at);
     }
-  }
+
+    const docs = await fetchDocumentBatches(client, toFetch, workspaceId, {
+      onProgress: (n) => {
+        stats.fetched += n;
+        if (stats.fetched % 500 === 0) console.log(`synced ${stats.fetched} documents...`);
+      },
+    });
+    db.upsertDocuments(docs, folderId);
+    if (m) db.setFolderSyncAt(folderId, m.updated_at);
+  });
+
   db.setLastSyncedAt(now);
-  console.log(`sync complete: ${fetched} fetched, ${unchanged} unchanged, ${skippedFolders} folders skipped`);
-  return { fetched, unchanged, skippedFolders, folders: folders.length, syncedAt: now };
+  console.log(`sync complete: ${stats.fetched} fetched, ${stats.unchanged} unchanged, ${stats.skippedFolders} folders skipped`);
+  return { fetched: stats.fetched, unchanged: stats.unchanged, skippedFolders: stats.skippedFolders, folders: folders.length, syncedAt: now };
 }
 
 async function ensureSynced(client) {
@@ -309,11 +368,7 @@ async function getNote(client, documentId) {
 async function getRecentCalls(client, { limit = 10, folder } = {}) {
   await ensureSynced(client);
   const { workspaceId, ids } = await getDocumentListIds(client, { folder, maxDocs: limit * 2 });
-  const docs = [];
-  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-    const batch = await getDocumentsBatch(client, ids.slice(i, i + BATCH_SIZE), workspaceId);
-    docs.push(...batch);
-  }
+  const docs = await fetchDocumentBatches(client, ids, workspaceId);
   docs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   return docs.slice(0, limit).map((doc) => ({
     id: doc.id,
@@ -333,16 +388,15 @@ async function getTranscript(client, meetingId) {
   };
 }
 
-module.exports = {
-  start,
-  emergencyStop,
-  getCurrentPage,
-  getText,
-  getSelectedText,
-  getContext,
-  syncDocuments,
-  searchLocal,
-  getNote,
-  getRecentCalls,
-  getTranscript,
-};
+granola.emergencyStop = emergencyStop;
+granola.getCurrentPage = getCurrentPage;
+granola.getText = getText;
+granola.getSelectedText = getSelectedText;
+granola.getContext = getContext;
+granola.syncDocuments = syncDocuments;
+granola.searchLocal = searchLocal;
+granola.getNote = getNote;
+granola.getRecentCalls = getRecentCalls;
+granola.getTranscript = getTranscript;
+
+module.exports = granola;
