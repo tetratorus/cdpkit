@@ -1,0 +1,18 @@
+#!/bin/sh
+# Refuse to push any commit that does not use the maintainer identity.
+set -eu
+
+check="$(dirname "$0")/../scripts/check-commit-identity.sh"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac # branch deletion
+  case "$remote_sha" in
+    *[!0]*)
+      if git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+        "$check" "$remote_sha..$local_sha"
+        continue
+      fi
+      ;;
+  esac
+  "$check" "$local_sha" --not --remotes="$1"
+done

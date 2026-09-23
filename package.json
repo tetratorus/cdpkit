@@ -10,7 +10,8 @@
     "test": "node --test scripts/*.test.js",
     "probe": "node scripts/probe.js",
     "download-slack-file": "node scripts/download_slack_file.js",
-    "patch-granola": "node scripts/patch_granola.mjs"
+    "patch-granola": "node scripts/patch_granola.mjs",
+    "install-hooks": "sh scripts/install-hooks.sh"
   },
   "keywords": [],
   "author": "",
