@@ -292,12 +292,16 @@ test("Teams never launches or restarts the desktop app when CDP is unavailable",
   assert.equal(start.mock.callCount(), 0);
 });
 
-test("Teams launcher config passes WebView2 debugging arguments on loopback", () => {
+// Launching through LaunchServices keeps Teams its own TCC responsible process; exec'ing the binary
+// from a terminal makes the terminal responsible and macOS kills Teams on Focus-status access.
+test("Teams launcher uses LaunchServices and passes WebView2 debugging arguments on loopback", () => {
   assert.equal(apps.teams.processName, "MSTeams");
   assert.equal(apps.teams.defaultPort, 9232);
   assert.deepEqual(apps.teams.launchArgs(9232), [
-    "/usr/bin/env",
+    "open",
+    "-a",
+    "Microsoft Teams",
+    "--env",
     "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9232 --remote-debugging-address=127.0.0.1",
-    "/Applications/Microsoft Teams.app/Contents/MacOS/MSTeams",
   ]);
 });

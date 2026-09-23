@@ -49,10 +49,14 @@ const apps = {
   teams: {
     name: "Microsoft Teams",
     processName: "MSTeams",
+    // Must go through LaunchServices: exec'ing MSTeams from a terminal makes the terminal the TCC
+    // responsible process, and macOS kills Teams when it reads Focus status (no usage string there).
     launchArgs: (port) => [
-      "/usr/bin/env",
+      "open",
+      "-a",
+      "Microsoft Teams",
+      "--env",
       `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1`,
-      "/Applications/Microsoft Teams.app/Contents/MacOS/MSTeams",
     ],
     killCmd: "pkill -TERM -x MSTeams",
     defaultPort: 9232,
