@@ -32,14 +32,14 @@ async function fixture(t, evaluate = (_expression, target) => target) {
   const wss = new Server({ server });
   wss.on("connection", (ws, req) => {
     connections.push(req.url);
-    ws.on("message", (data) => {
+    ws.on("message", async (data) => {
       const message = JSON.parse(data);
       calls.push({ target: req.url, ...message });
       if (message.method === "Test.disconnect") return ws.close();
       if (message.method === "Test.emit") {
         ws.send(JSON.stringify({ method: "Page.loadEventFired", params: { timestamp: 1 } }));
       }
-      const value = message.params.expression === "1+1" ? 2 : evaluate(message.params.expression, req.url);
+      const value = message.params.expression === "1+1" ? 2 : await evaluate(message.params.expression, req.url);
       const result = message.method === "Runtime.evaluate" ? { result: { value } } : {};
       ws.send(JSON.stringify({ id: message.id, result }));
     });
@@ -266,7 +266,8 @@ test("Teams context and text helpers only read the selected page", async (t) => 
   const s = await teams({ port: f.port, target: { id: "main" } });
   t.after(() => transport.close(s.client));
   assert.deepEqual(await teams.getContext(s.client), {
-    app: "teams", title: "Teams chat", url: "https://teams.microsoft.com/v2/", text: "Sample visible text",
+    app: "teams", title: "Teams chat", url: "https://teams.microsoft.com/v2/",
+    currentView: { conversationId: null, title: null }, text: "Sample visible text",
   });
   assert.equal(await teams.getText(s.client), "Sample visible text");
   assert.ok(f.calls.every(call => call.target === "/main" && call.method === "Runtime.evaluate"));

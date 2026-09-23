@@ -47,7 +47,7 @@ No personal cache or exported data is needed for setup. `data/` is created when 
 ## Agent workflow
 
 1. Call the driver: `slack()`, `notion()`, `chrome()`, `granola()`, or `teams()`. Teams only attaches to an existing CDP endpoint.
-2. Get context: `driver.getContext(client)` returns the current state. Slack, Notion, and Granola include a screenshot; Chrome and Teams return title, URL, and visible text.
+2. Get context: `driver.getContext(client)` returns the current state. Slack, Notion, and Granola include a screenshot; Chrome returns title, URL, and visible text; Teams adds the open conversation.
 3. Inspect the returned state to identify the active channel, page, or selection.
 4. Fetch data with read methods like `getMessages`, `searchMessages`, `getText`, `search`, or Granola's `searchLocal`.
 5. Leave the app running. There is no need to call `driver.emergencyStop(s)` unless you intentionally launched the app and want to quit it.
@@ -58,7 +58,7 @@ No personal cache or exported data is needed for setup. `data/` is created when 
 - `drivers/slack.js` — in-app Slack API calls, messages, search, context
 - `drivers/notion.js` — in-app Notion API calls, page open, text extract, search, context
 - `drivers/granola.js` — in-app Granola API calls, search, transcripts, context
-- `drivers/teams.js`: native Microsoft Teams desktop attachment, target discovery, title, and visible text
+- `drivers/teams.js` — native Microsoft Teams desktop attachment and target discovery, plus read-only in-app GraphQL for chats, channels, full message history, members, and search
 
 ## Core modules
 
@@ -169,12 +169,46 @@ const transport = require("./transport");
 })();
 ```
 
-- `teams.getContext(client)` returns `{ app: "teams", title, url, text }`. It does not take screenshots or call Teams service APIs.
-- `teams.getTitle(client)` and `teams.getText(client)` read the selected page. Text includes only rendered content, not complete chat history or off-screen virtualized messages.
+- `teams.getContext(client)` returns `{ app: "teams", title, url, currentView, text }`. It does not take screenshots or run GraphQL queries.
+- `teams.getTitle(client)` and `teams.getText(client)` read the selected page. Text includes only rendered content, not complete chat history or off-screen virtualized messages. Use the data helpers below for history.
 - Teams can expose several empty page targets alongside the real UI. Default selection probes only recognized Teams HTTPS pages, prefers a focused populated page, and otherwise requires exactly one populated page. If all pages are empty, wait for Teams to load and retry.
 - If several populated pages match, the driver fails rather than selecting an arbitrary account or window. Use `await teams.listTargets()` and attach explicitly with `await teams({ target: { id: "TARGET_ID" } })`. Explicit URL, title, or predicate selectors must also resolve to exactly one Teams page.
 - A non-default port can be passed to both `teams({ port })` and `teams.listTargets({ port })`. Reconnects remain pinned to the selected target ID; a closed target is never silently replaced.
 - Close only the CDP connection with `transport.close(s.client)` when finished. Leave the user's Teams app running. No message-sending or mutation helpers are exposed.
+
+#### Teams data helpers
+
+Teams' UI reads its data through GraphQL queries answered by its own background data worker, which handles authentication, caching, and network calls. The data helpers send read-only queries through the same in-page GraphQL client the Teams UI uses. No tokens, cookies, or service URLs leave Teams; only the query results come back over CDP. Queries use `fetchPolicy: "no-cache"`, so they do not alter the UI's store. They never run Teams mutations, such as marking messages as read.
+
+| Helper | Returns |
+|---|---|
+| `teams.getCurrentUser(client)` | `{ id, name, email, tenantId }` for the signed-in user |
+| `teams.getCurrentView(client)` | `{ conversationId, title }` for the open chat, from the page |
+| `teams.getConversations(client, { limit })` | Recent chats, most recent first: `{ id, title, type, lastMessageTime, lastMessage }`. `type` is `group`, `oneOnOne`, `meeting`, or `self` |
+| `teams.getChannels(client)` | Joined teams with their channels: `{ id, name, archived, channels: [{ id, name, general, member }] }` |
+| `teams.getMessages(client, conversationId, { limit, since, cursor, includeSystem })` | `{ messages, nextCursor, hasMore }`, newest first. Each message is `{ id, conversationId, time, from, fromUserId, type, system, edited, deleted, translatedFrom, text, html }` |
+| `teams.getReplyChains(client, channelId, { limit })` | Channel threads, newest first: `{ id, replyChainId, time }` |
+| `teams.getThreadReplies(client, channelId, replyChainId, options)` | Messages in one channel thread, same shape and options as `getMessages` |
+| `teams.getMembers(client, conversationId)` | `{ id, name, email, tenantId }` for each member |
+| `teams.searchMessages(client, query, { page })` | Server-side search across chats and channels: `{ results, page, hasMore }`. Each result is `{ id, messageId, conversationId, replyChainId, channel, team, time, from, fromUserId, text, fields }` |
+| `teams.gqlQuery(client, query, variables)` | Escape hatch for other read-only queries against the Teams worker schema |
+
+- **History:** `getMessages` pages backwards until `limit` (default 50), `since` (an ISO time), or the start of the conversation. Teams serves synced history from its local store and fetches older or unsynced history from its service itself. Pass `nextCursor` back as `cursor` to continue. System events (member changes, call start/end, and call recording or transcript cards) are skipped unless `includeSystem: true`.
+- **Translations:** if the user translated a message in Teams, Teams returns the translation as the message content and the original is not available. Such messages have `translatedFrom` set to the source language code.
+- **Search:** Teams returns 25 results per zero-based page, ranked by relevance. Totals from Teams are approximate, so page until `hasMore` is false.
+- **Read-only:** `gqlQuery` accepts only `query` operations. Mutations and subscriptions throw `TEAMS_READ_ONLY` before anything reaches the page.
+- **Stability:** The schema is internal to Teams and can change between releases. Failures throw with a code instead of returning empty data: `TEAMS_CLIENT_MISSING` if the in-page client cannot be found, `TEAMS_GRAPHQL_ERROR` with Teams' error messages, and `TEAMS_SEARCH_FAILED` with the search status.
+- **Known gap:** some shared or external channels hosted by another team fail in Teams' channel-thread fetch (`getReplyChains`) with a server error.
+
+For example, to read the last day of every recent chat:
+
+```js
+const s = await teams();
+for (const chat of await teams.getConversations(s.client)) {
+  const { messages } = await teams.getMessages(s.client, chat.id, { since: new Date(Date.now() - 86400000).toISOString() });
+  console.log(chat.title, messages.map(m => `${m.time} ${m.from}: ${m.text}`));
+}
+```
 
 ### Granola
 

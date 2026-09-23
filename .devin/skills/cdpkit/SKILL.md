@@ -52,6 +52,7 @@ If CDP is not reachable:
 - **Slack / Notion** — if the app is running, kill and relaunch it with `--remote-debugging-port`; if it is not running, start it.
 - **Chrome** — if the app is not running, start it from cold; if it is already running without CDP, throw and ask the user to run `chromestart` (or quit Chrome first).
 - **Granola** — always throw and ask the user to run `granolastart`. The agent never launches or kills Granola.
+- **Teams** — always throw and ask the user to run `teamsstart`. The agent never launches, restarts, or quits Teams.
 
 Do not call `driver.emergencyStop()` as a routine cleanup step. There is no need to ever stop the driver; leave apps open. Only use `driver.emergencyStop(s)` if you intentionally launched the app and want to quit it.
 
@@ -71,6 +72,7 @@ Functions available:
 - `slackstart` — Slack with CDP on port 9228. Attaches if CDP is up, otherwise kills/restarts or starts Slack.
 - `notionstart` — Notion with CDP on port 9230. Attaches if CDP is up, otherwise kills/restarts or starts Notion.
 - `granolastart` — patched Granola with CDP on port 9231. Attaches if CDP is already up, starts from cold if Granola is not running, and errors if Granola is already running without CDP.
+- `teamsstart` — Microsoft Teams with WebView2 CDP on port 9232. Attaches if CDP is already up, starts from cold if Teams is not running, and errors if Teams is already running without CDP.
 - `chromestop`, `slackstop`, `notionstop`, `granolastop` — only use these when you intentionally want to quit the app
 
 **Agents must not call these shell functions directly.** They are user-facing helpers. If an app is not already open with CDP reachable, ask the user to run the appropriate `*start` command, then use `driver()` to attach.
@@ -81,7 +83,20 @@ Functions available:
 
 `teams()` attaches to the native macOS app on loopback port 9232. It never launches or restarts the app. The user-facing `teamsstart` launcher enables WebView2 CDP from a cold start and refuses to restart an already-running app without CDP.
 
-`teams.getContext(client)` returns `{ app, title, url, text }` without screenshots or service API calls. Default attachment selects a focused populated Teams page or the sole populated page. If several match, use `teams.listTargets()` and pass `teams({ target: { id: "TARGET_ID" } })`. Connections stay pinned to that target ID.
+`teams.getContext(client)` returns `{ app, title, url, currentView, text }` without screenshots. Default attachment selects a focused populated Teams page or the sole populated page. If several match, use `teams.listTargets()` and pass `teams({ target: { id: "TARGET_ID" } })`. Connections stay pinned to that target ID.
+
+For chat content, use the data helpers, not `getText`. They send read-only GraphQL queries through Teams' own in-page client, and Teams' data worker does the authentication and network calls. Nothing is copied out of Teams except results.
+
+- `teams.getConversations(client)`: recent chats with `id`, `title`, `type`, and last message.
+- `teams.getMessages(client, conversationId, { limit, since, cursor })`: full history, newest first, paging back to the start of the chat. Returns `{ messages, nextCursor, hasMore }`, and each message has `time`, `from`, and plain `text`.
+- `teams.getChannels(client)`, `teams.getReplyChains(client, channelId)`, `teams.getThreadReplies(client, channelId, replyChainId)`: channel threads.
+- `teams.searchMessages(client, query, { page })`: server-side search across chats and channels, 25 results per page.
+- `teams.getMembers(client, conversationId)`, `teams.getCurrentUser(client)`, `teams.getCurrentView(client)`.
+- `teams.gqlQuery(client, query, variables)`: other read-only queries. Mutations and subscriptions are rejected.
+
+```bash
+node -e "const t=require('./drivers/teams');(async()=>{const s=await t();for(const c of await t.getConversations(s.client)){const r=await t.getMessages(s.client,c.id,{limit:20});console.log(c.title);for(const m of r.messages.reverse())console.log(' ',m.time,m.from+':',m.text)}process.exit(0)})();"
+```
 
 ## Granola setup
 
@@ -122,7 +137,7 @@ node scripts/download_slack_file.js <channel> "<file-name-or-query>" [output-dir
 
 ## Where to learn the API
 
-- Implementation: `drivers/<app>.js` (slack.js, notion.js, chrome.js, granola.js)
+- Implementation: `drivers/<app>.js` (slack.js, notion.js, chrome.js, granola.js, teams.js)
 - Lifecycle: `session.js` and `apps.js`
 - Granola local DB: `db.js`, `drivers/granola.js`
 - Low-level primitives: `primitives.js`, `transport.js`
