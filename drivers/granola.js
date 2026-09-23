@@ -7,6 +7,7 @@ const RATE_LIMIT_INTERVAL = 0;
 const SYNC_STALE_MS = 60 * 60 * 1000; // resync local DB if older than 1 hour
 const MAX_CONCURRENCY = 30;
 const FOLDER_CONCURRENCY = 30;
+const OWN_DOCS_PAGE_SIZE = 100;
 
 let lastCall = 0;
 let active = 0;
@@ -70,7 +71,7 @@ function runWithConcurrency(items, concurrency, fn) {
 
 let syncPromise = null;
 
-function _apiCall(client, endpoint, body, { workspaceId } = {}) {
+function _apiCall(client, endpoint, body, { workspaceId, version = "v1" } = {}) {
   return primitives.eval(
     client,
     `(async function(){
@@ -89,7 +90,7 @@ function _apiCall(client, endpoint, body, { workspaceId } = {}) {
         'X-Granola-Os-Version': osVersion || ''
       };
       ${workspaceId ? `headers['X-Granola-Workspace-Id'] = ${JSON.stringify(workspaceId)};` : ""}
-      const res = await fetch('https://api.granola.ai/v1/' + ${JSON.stringify(endpoint)}, {
+      const res = await fetch('https://api.granola.ai/${version}/' + ${JSON.stringify(endpoint)}, {
         method: 'POST',
         headers,
         body: JSON.stringify(${JSON.stringify(body)})
@@ -104,8 +105,8 @@ function _apiCall(client, endpoint, body, { workspaceId } = {}) {
   );
 }
 
-function apiCall(client, endpoint, body, { workspaceId } = {}) {
-  return withRateLimit(() => _apiCall(client, endpoint, body, { workspaceId }));
+function apiCall(client, endpoint, body, opts = {}) {
+  return withRateLimit(() => _apiCall(client, endpoint, body, opts));
 }
 
 async function getDocumentListIds(client, { folder, maxDocs = null } = {}) {
@@ -291,10 +292,22 @@ async function _syncDocuments(client) {
     }
 
     let toFetch = [];
+    let summaries = null;
+    if (lastSync) {
+      // get-document-list ignores `limit` and returns full docs, so very large folders 500 server-side.
+      summaries = await fetchDocumentListSummaries(client, folderId, workspaceId).catch((err) => {
+        console.warn(`get-document-list failed for folder ${m?.title || folderId} (${ids.length} docs), refetching from cache ids: ${err.message}`);
+        return null;
+      });
+    }
     if (!lastSync) {
       toFetch = ids.filter((id) => !syncedIds.has(id));
+    } else if (!summaries) {
+      const currentIds = new Set(ids);
+      const toDelete = db.getDocumentIdsForFolder(folderId).filter((id) => !currentIds.has(id));
+      if (toDelete.length) db.deleteDocuments(toDelete);
+      toFetch = ids;
     } else {
-      const summaries = await fetchDocumentListSummaries(client, folderId, workspaceId);
       const currentIds = new Set(summaries.map((s) => s.id));
       const localIds = db.getDocumentIdsForFolder(folderId);
       const toDelete = localIds.filter((id) => !currentIds.has(id));
@@ -319,9 +332,29 @@ async function _syncDocuments(client) {
     if (m) db.setFolderSyncAt(folderId, m.updated_at);
   });
 
+  stats.fetched += await syncOwnDocuments(client, workspaceId, { full: !lastSync });
+
   db.setLastSyncedAt(now);
   console.log(`sync complete: ${stats.fetched} fetched, ${stats.unchanged} unchanged, ${stats.skippedFolders} folders skipped`);
   return { fetched: stats.fetched, unchanged: stats.unchanged, skippedFolders: stats.skippedFolders, folders: folders.length, syncedAt: now };
+}
+
+// Folder lists only cover filed notes; page the user's own notes (newest first) to pick up unfiled ones.
+// Incremental syncs stop at the first page with no new or changed docs.
+async function syncOwnDocuments(client, workspaceId, { full = false, pageSize = OWN_DOCS_PAGE_SIZE } = {}) {
+  let fetched = 0;
+  for (let offset = 0; ; offset += pageSize) {
+    const data = await apiCall(client, "get-documents", { limit: pageSize, offset, include_last_viewed_panel: true }, { workspaceId, version: "v2" });
+    const docs = data.docs || [];
+    if (data.deleted?.length) db.deleteDocuments(data.deleted);
+    const changed = docs.filter((d) => {
+      const existing = db.getDocument(d.id);
+      return !existing || String(existing.updated_at) !== String(d.updated_at);
+    });
+    db.upsertDocuments(changed, undefined);
+    fetched += changed.length;
+    if (docs.length < pageSize || (!full && !changed.length)) return fetched;
+  }
 }
 
 async function ensureSynced(client) {
@@ -343,7 +376,7 @@ async function searchLocal(client, query, { folder, limit = 100 } = {}) {
     title: r.title || "",
     createdAt: r.created_at,
     url: `app://ui/#/meeting/${r.id}`,
-    snippet: (r.notes_plain || r.title || "").slice(0, 200),
+    snippet: (r.notes_plain || r.panel_text || r.title || "").slice(0, 200),
     folder: r.folder,
   }));
   return { results, total, syncedAt: db.getLastSyncedAt(), folder };

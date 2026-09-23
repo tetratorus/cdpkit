@@ -27,19 +27,34 @@ db.exec(`
   );
 `);
 
+if (!db.prepare("PRAGMA table_info(documents)").all().some((c) => c.name === "panel_text")) {
+  db.exec("ALTER TABLE documents ADD COLUMN panel_text TEXT");
+  // Existing rows lack summaries; drop the cache so the next sync refetches everything.
+  db.exec("DELETE FROM documents");
+  db.exec("DELETE FROM sync_meta");
+}
+
 db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA busy_timeout = 5000;");
 db.exec("CREATE INDEX IF NOT EXISTS idx_documents_folder ON documents(folder);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);");
 
+function proseMirrorText(node) {
+  if (!node || typeof node !== "object") return "";
+  if (node.type === "text") return node.text || "";
+  const inner = (node.content || []).map(proseMirrorText).join(node.type === "doc" || node.type.endsWith("list") ? "\n" : "");
+  return /^(paragraph|heading|listItem|list_item)$/.test(node.type) ? `${inner}\n` : inner;
+}
+
+// `folder === undefined` keeps an existing row's folder (used for docs synced outside any folder list).
 function upsertDocuments(docs, folder) {
   if (!docs.length) return;
   db.exec("BEGIN TRANSACTION");
   try {
     const stmt = db.prepare(`
       INSERT INTO documents
-        (id, title, created_at, updated_at, notes_plain, notes_markdown, people_json, folder, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, title, created_at, updated_at, notes_plain, notes_markdown, people_json, folder, synced_at, panel_text)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         created_at = excluded.created_at,
@@ -47,10 +62,12 @@ function upsertDocuments(docs, folder) {
         notes_plain = excluded.notes_plain,
         notes_markdown = excluded.notes_markdown,
         people_json = excluded.people_json,
-        folder = excluded.folder,
-        synced_at = excluded.synced_at
+        folder = CASE WHEN ? THEN documents.folder ELSE excluded.folder END,
+        synced_at = excluded.synced_at,
+        panel_text = excluded.panel_text
     `);
     const now = Date.now();
+    const keepFolder = folder === undefined ? 1 : 0;
     for (const doc of docs) {
       const people = JSON.stringify(doc.people || []);
       stmt.run(
@@ -62,7 +79,9 @@ function upsertDocuments(docs, folder) {
         doc.notes_markdown || "",
         people,
         folder || "",
-        now
+        now,
+        proseMirrorText(doc.last_viewed_panel?.content).trim(),
+        keepFolder
       );
     }
     db.exec("COMMIT");
@@ -104,9 +123,9 @@ function buildSearchSql(terms, folder) {
   for (const t of terms) {
     const like = `%${t}%`;
     conditions.push(
-      "(LOWER(title) LIKE ? OR LOWER(notes_plain) LIKE ? OR LOWER(notes_markdown) LIKE ? OR LOWER(people_json) LIKE ?)"
+      "(LOWER(title) LIKE ? OR LOWER(notes_plain) LIKE ? OR LOWER(notes_markdown) LIKE ? OR LOWER(people_json) LIKE ? OR LOWER(panel_text) LIKE ?)"
     );
-    params.push(like, like, like, like);
+    params.push(like, like, like, like, like);
   }
   let where = conditions.join(" AND ");
   if (folder) {
@@ -118,7 +137,7 @@ function buildSearchSql(terms, folder) {
 
 function searchDocuments(terms, { folder, limit = 100 } = {}) {
   const { where, params } = buildSearchSql(terms, folder);
-  const sql = `SELECT id, title, created_at, notes_plain, folder FROM documents WHERE ${where} ORDER BY created_at DESC LIMIT ?`;
+  const sql = `SELECT id, title, created_at, notes_plain, panel_text, folder FROM documents WHERE ${where} ORDER BY created_at DESC LIMIT ?`;
   params.push(limit);
   const stmt = db.prepare(sql);
   return stmt.all(...params);
