@@ -159,7 +159,7 @@ async function getDocumentListIds(client, { folder, maxDocs = null } = {}) {
 
 async function getDocumentsBatch(client, ids, workspaceId) {
   if (!ids.length) return [];
-  const data = await apiCall(client, "get-documents-batch", { document_ids: ids }, { workspaceId });
+  const data = await apiCall(client, "get-documents-batch", { document_ids: ids, include_last_viewed_panel: true }, { workspaceId });
   return data.docs || [];
 }
 
@@ -393,6 +393,7 @@ async function getNote(client, documentId) {
     notesPlain: doc.notes_plain,
     notesMarkdown: doc.notes_markdown,
     overview: doc.overview,
+    summary: db.proseMirrorText(doc.last_viewed_panel?.content).trim() || null,
     people: doc.people || [],
     url: `app://ui/#/meeting/${doc.id}`,
   };

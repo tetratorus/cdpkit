@@ -34,6 +34,14 @@ if (!db.prepare("PRAGMA table_info(documents)").all().some((c) => c.name === "pa
   db.exec("DELETE FROM sync_meta");
 }
 
+// Bump when cached rows need refetching. v1: folder-synced docs were fetched without their AI summary panel.
+const CACHE_VERSION = 1;
+if (db.prepare("PRAGMA user_version").get().user_version < CACHE_VERSION) {
+  db.exec("DELETE FROM documents");
+  db.exec("DELETE FROM sync_meta");
+  db.exec(`PRAGMA user_version = ${CACHE_VERSION}`);
+}
+
 db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA busy_timeout = 5000;");
 db.exec("CREATE INDEX IF NOT EXISTS idx_documents_folder ON documents(folder);");
@@ -201,4 +209,5 @@ module.exports = {
   deleteDocument,
   deleteDocuments,
   clearDocuments,
+  proseMirrorText,
 };

@@ -85,3 +85,39 @@ test("sync indexes unfiled notes and their AI summaries without clobbering folde
   assert.equal(db.getDocument("unfiled").folder, "");
   assert.equal(db.getDocument("filed").folder, "f1");
 });
+
+test("folder sync requests and indexes AI summaries for filed notes", async (t) => {
+  db.clearDocuments();
+  const panel = { content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Direct Connect to on-prem" }] }] } };
+  fakeGranola(t, {
+    lists: { f1: ["filed"] },
+    meta: { f1: { updated_at: "2026-02-01T00:00:00Z" } },
+    onList: () => { throw new Error("not used on first sync"); },
+    onBatch: ({ document_ids, include_last_viewed_panel }) => {
+      assert.equal(include_last_viewed_panel, true);
+      return { docs: document_ids.map((id) => ({ ...doc(id, "5"), last_viewed_panel: panel })) };
+    },
+  });
+
+  await granola.syncDocuments({});
+
+  assert.deepEqual(db.searchDocuments(["direct", "connect"]).map((h) => h.id), ["filed"]);
+});
+
+test("getNote returns the AI summary panel when typed notes are empty", async (t) => {
+  const panel = { content: { type: "doc", content: [{ type: "heading", content: [{ type: "text", text: "Pilot Scope" }] }, { type: "paragraph", content: [{ type: "text", text: "Back-end rationalization" }] }] } };
+  fakeGranola(t, {
+    lists: {},
+    meta: {},
+    onList: () => { throw new Error("unused"); },
+    onBatch: ({ document_ids, include_last_viewed_panel }) => {
+      assert.equal(include_last_viewed_panel, true);
+      return { docs: document_ids.map((id) => ({ ...doc(id), notes_plain: null, notes_markdown: null, last_viewed_panel: panel })) };
+    },
+  });
+
+  const note = await granola.getNote({}, "m1");
+
+  assert.equal(note.notesMarkdown, null);
+  assert.equal(note.summary, "Pilot Scope\n\nBack-end rationalization");
+});
