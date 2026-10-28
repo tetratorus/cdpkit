@@ -1,4 +1,5 @@
 const os = require("os");
+const path = require("path");
 
 const home = os.homedir();
 const chromeProfile = `${home}/.cdpkit-chrome`;
@@ -22,7 +23,12 @@ const apps = {
   slack: {
     name: "Slack",
     processName: "Slack",
-    launchArgs: (port) => ["open", "-a", "Slack", "--args", `--remote-debugging-port=${port}`],
+    launchArgs: (port) => [
+      "/Applications/Slack.app/Contents/MacOS/Slack",
+      `--user-data-dir=${path.join(__dirname, "data", "slack-profile")}`,
+      "--remote-debugging-address=127.0.0.1",
+      `--remote-debugging-port=${port}`,
+    ],
     killCmd: 'killall -TERM Slack 2>/dev/null; killall -9 Slack 2>/dev/null',
     defaultPort: 9228,
   },

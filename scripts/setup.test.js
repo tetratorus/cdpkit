@@ -71,3 +71,37 @@ test("the package entry exports every driver without launching an app", () => {
   });
   assert.equal(result.status, 0, result.stderr);
 });
+
+test("Slack launches with an isolated repository-relative profile and loopback CDP", () => {
+  const { apps } = require("../apps");
+  const args = apps.slack.launchArgs(19228);
+  assert.equal(args[0], "/Applications/Slack.app/Contents/MacOS/Slack");
+  assert.ok(args.includes(`--user-data-dir=${path.resolve(__dirname, "../data/slack-profile")}`));
+  assert.ok(args.includes("--remote-debugging-address=127.0.0.1"));
+  assert.ok(args.includes("--remote-debugging-port=19228"));
+  assert.equal(apps.slack.defaultPort, 9228);
+});
+
+for (const shell of ["bash", "zsh"]) {
+  test(`${shell} slackstart starts CDP without requiring a signed-in workspace`, (t) => {
+    const { root, env } = fixture(t);
+    fs.writeFileSync(path.join(root, "session.js"), `
+      exports.start = async (name) => {
+        require("node:assert/strict").equal(name, "slack");
+        return { port: 9228, client: "mock-client" };
+      };
+    `);
+    fs.writeFileSync(path.join(root, "transport.js"), `
+      exports.close = async (client) => {
+        require("node:assert/strict").equal(client, "mock-client");
+        console.log("connection closed");
+      };
+    `);
+    const result = spawnSync(shell, ["-f", "-c", 'source "$1"; slackstart', "cdpkit-test", path.join(__dirname, "aliases.sh")], {
+      env: { ...env, CDPKIT_DIR: root }, encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /9228/);
+    assert.match(result.stdout, /connection closed/);
+  });
+}

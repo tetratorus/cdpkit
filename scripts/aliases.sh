@@ -76,7 +76,7 @@ chromestop() {
 }
 
 slackstart() {
-  ( cd "$CDPKIT_DIR" && node -e "require('./drivers/slack')().then(s => { console.log('slack started on port', s.port); process.exit(0); }).catch(e => { console.error(e); process.exit(1); })" )
+  ( cd "$CDPKIT_DIR" && node -e "require('./session').start('slack').then(async s => { console.log('Slack CDP on port', s.port, '(dedicated profile; sign in if prompted)'); await require('./transport').close(s.client); process.exit(0); }).catch(e => { console.error(e.message); process.exit(1); })" )
 }
 
 slackstop() {

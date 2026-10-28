@@ -109,6 +109,8 @@ cdpkit is read-only by default. Never send, post, edit, or mutate state in any a
 
 ### Slack
 
+`slackstart` uses a dedicated profile at `data/slack-profile/`, resolved relative to the package rather than the current shell directory. Recent Slack releases refuse `--remote-debugging-port` with the default profile. The dedicated profile is gitignored; the launcher does not copy or modify the default profile's files. On a fresh profile, sign in manually once. The launcher checks CDP readiness without requiring a signed-in workspace; use the Slack driver after sign-in.
+
 - Prefer the cdpkit helpers; they call the in-app Slack APIs directly. Do not rely on the stale redux cache.
 - `slack.getContext()` returns `{ currentUser, currentView, selectedText, visibleText, screenshot }`. `currentView.type` is `channel`, `dm`, `group`, `thread`, `canvas`, `home`, `activity`, `search`, or `doc`.
 - If no helper covers what you need, DOM scraping is allowed, but it's more unreliable — watch for dynamic loading, virtual lists, and stale UI state. Never use DOM actions to send, post, or edit messages.
